@@ -30,4 +30,11 @@ Commands:
 - sync SAVE_NAME
 
 Date format:
-yyyy-mm-dd hh-mm-ss.microseconds
+yy-mm-dd hh:mm:ss
+
+Remote
+upload_time
+
+Local
+upload_time
+mod_time

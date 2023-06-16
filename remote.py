@@ -1,5 +1,6 @@
 import json
 import shutil
+from datetime import datetime
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -34,6 +35,8 @@ class FSRemote(Remote):
         self.reg_file = self.root.joinpath('registry.json')
 
     def _load_reg(self):
+        if not self.reg_file.exists():
+            return {}
         with open(self.reg_file) as fio:
             return json.load(fio)
 
@@ -41,13 +44,17 @@ class FSRemote(Remote):
         with open(self.reg_file, 'w') as fio:
             return json.dump(reg, fio)
     
-    def create_save(self, name, parameters):
+    def create_save(self, name, root_hint='', pattern_hint=''):
         reg = self._load_reg()
         key = name.lower()
         if key in reg:
             raise ValueError('Remote already has a save with that name')
-        reg[key] = dict(parameters)
-        reg[key]['name'] = name
+        reg[key] = {
+            'name': name,
+            'root_hint': root_hint,
+            'pattern_hint': pattern_hint,
+            'last_upload': ''
+        }
         self._save_reg(reg)
 
     def edit_save(self, name, parameters):
@@ -63,10 +70,12 @@ class FSRemote(Remote):
     def get_saves(self) -> dict:
         return self._load_reg()
 
-    def load_save(self, name, output_folder):
-        remote_path = self.root.joinpath(f'{name}.zip')
-        return shutil.copy(remote_path, output_folder)
+    def load_save(self, name, filepath):
+        remote_path = self.root.joinpath(name)
+        shutil.copy(remote_path, filepath)
 
     def upload_save(self, name, filepath):
-        remote_path = self.root.joinpath(f'{name}.zip')
+        remote_path = self.root.joinpath(name)
         shutil.copy(filepath, remote_path)
+        last_upload = datetime.now().strftime('%y-%m-%d %H:%M:%S')
+        self.edit_save(name, {'last_upload': last_upload})
