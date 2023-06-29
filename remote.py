@@ -3,79 +3,83 @@ import shutil
 from datetime import datetime
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
 
 class Remote(ABC):
     @abstractmethod
-    def create_save(self, name, parameters):
+    def get_registry(self) -> dict[str, dict[str, Any]]:
         pass
 
     @abstractmethod
-    def edit_save(self, name, parameters):
+    def upload_save(self, save_name, file_to_upload):
         pass
 
     @abstractmethod
-    def delete_save(self, name):
+    def load_save(self, save_name, output_file):
         pass
 
     @abstractmethod
-    def get_saves(self) -> dict:
+    def delete_save(self, save_name):
         pass
 
     @abstractmethod
-    def load_save(self, name, output_folder):
+    def add_hints(self, save_name, hints: dict[str, str]):
         pass
 
-    @abstractmethod
-    def upload_save(self, name, filepath):
-        pass
 
 class FSRemote(Remote):
     def __init__(self, folder) -> None:
-        self.root = Path(folder)
-        self.reg_file = self.root.joinpath('registry.json')
+        self.saves_folder = Path(folder).joinpath('saves')
+        self.saves_folder.mkdir(exist_ok=True, parents=True)
+        self.hints_file = Path(folder).joinpath('hints.json')
 
-    def _load_reg(self):
-        if not self.reg_file.exists():
-            return {}
-        with open(self.reg_file) as fio:
-            return json.load(fio)
+    def _get_existing_saves(self):
+        return {file.name.lower(): file for file in self.saves_folder.iterdir() if file.is_file()}
 
-    def _save_reg(self, reg):
-        with open(self.reg_file, 'w') as fio:
-            return json.dump(reg, fio)
+    def get_registry(self) -> dict[str, dict[str, Any]]:
+        saves = {}
+        hints = self._load_hints()
+        for lower_name, file in self._get_existing_saves().items():
+            stat = file.stat()
+            save = {
+                'name': file.name,
+                'last_upload': datetime.fromtimestamp(stat.st_mtime),
+                'size': stat.st_size
+            }
+            for add_attr in ('root_hint', 'pattern_hint', 'ignore_hint'):
+                if add_attr in hints.get(lower_name, {}):
+                    save[add_attr] = hints[lower_name][add_attr]
+            saves[lower_name] = save
+        return saves
     
-    def create_save(self, name, root_hint='', pattern_hint=''):
-        reg = self._load_reg()
-        key = name.lower()
-        if key in reg:
-            raise ValueError('Remote already has a save with that name')
-        reg[key] = {
-            'name': name,
-            'root_hint': root_hint,
-            'pattern_hint': pattern_hint,
-            'last_upload': ''
-        }
-        self._save_reg(reg)
+    def upload_save(self, save_name, file_to_upload):
+        existing_save = self._get_existing_saves().get(save_name.lower())
+        remote_path = existing_save or self.saves_folder.joinpath(save_name)
+        shutil.copy(file_to_upload, remote_path)
 
-    def edit_save(self, name, parameters):
-        reg = self._load_reg()
-        reg[name].update(parameters)
-        self._save_reg(reg)
+    def load_save(self, save_name, output_file):
+        existing_save = self._get_existing_saves()[save_name.lower()]
+        shutil.copy(existing_save, output_file)
 
-    def delete_save(self, name):
-        reg = self._load_reg()
-        del reg[name]
-        self._save_reg(reg)
+    def delete_save(self, save_name):
+        lower_name = save_name.lower()
+        existing_save = self._get_existing_saves()[lower_name]
+        existing_save.unlink()
+        hints = self._load_hints()
+        hints.pop(lower_name)
+        self._save_hints(hints)
 
-    def get_saves(self) -> dict:
-        return self._load_reg()
+    def add_hints(self, save_name, hints: dict[str, str]):
+        all_hints = self._load_hints()
+        all_hints[save_name.lower()] = hints
+        self._save_hints(all_hints)
 
-    def load_save(self, name, filepath):
-        remote_path = self.root.joinpath(name)
-        shutil.copy(remote_path, filepath)
-
-    def upload_save(self, name, filepath):
-        remote_path = self.root.joinpath(name)
-        shutil.copy(filepath, remote_path)
-        last_upload = datetime.now().strftime('%y-%m-%d %H:%M:%S')
-        self.edit_save(name, {'last_upload': last_upload})
+    def _load_hints(self):
+        if not self.hints_file.exists():
+            return {}
+        with open(self.hints_file, 'r') as fio:
+            return json.load(fio)
+        
+    def _save_hints(self, hints):
+        with open(self.hints_file, 'w') as fio:
+            return json.dump(hints, fio)
