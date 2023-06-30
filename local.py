@@ -18,6 +18,7 @@ class Local:
     def _load_registry(self):
         if not self.registry_file.exists():
             self.registry = {}
+            return
         with open(self.registry_file) as fio:
             self.registry = load_block_file(fio)
         for save in self.registry.values():

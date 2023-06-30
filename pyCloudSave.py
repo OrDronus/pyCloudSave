@@ -5,7 +5,7 @@ from pathlib import Path
 from tabulate import tabulate
 from datetime import datetime, timedelta
 
-from remote import Remote, FSRemote
+from remote import Remote, FSRemote, GDriveRemote
 from local import Local
 
 class AppException(Exception):
@@ -173,6 +173,8 @@ class Application:
 def create_remote(options):
     if options['type'] == 'localfs':
         return FSRemote(options['folder'])
+    elif options['type'] == 'gdrive':
+        return GDriveRemote()
     else:
         raise ValueError("Remote is incorrect")
     
