@@ -4,9 +4,34 @@ import shutil
 from pathlib import Path
 from tabulate import tabulate
 from datetime import datetime, timedelta
+from numbers import Real
+from typing import Any, Union
 
 from remote import Remote, FSRemote
 from local import Local
+from common import normalize_name, normalized_search
+
+DATETIME_PRINT_FORMAT = "%y-%m-%d %H:%M:%S"
+
+def datetime_to_str(obj: Union[datetime, Any], default='-'):
+    if not isinstance(obj, datetime):
+        return default
+    return datetime.strftime(obj, DATETIME_PRINT_FORMAT)
+
+def size_to_str(obj: Union[Real, Any], default='-'):
+    if not isinstance(obj, Real):
+        return default
+    prefixes = ['b', 'Kb', 'Mb', 'Gb']
+    for prefix in prefixes:
+        if obj < 1024:
+            return f"{obj:.1f} {prefix}"
+        obj /= 1024
+    return f"{obj:.1f} Tb"
+
+def find_save(name: str, registry: dict):
+    result = normalized_search(registry, name)
+    if not result:
+        pass
 
 class AppException(Exception):
     pass
@@ -51,7 +76,7 @@ class Application:
         remote_registry = self.remote.get_registry()
         headers = ['Save name', 'Last upload', 'Size']
         data = [
-            [s['name'], s['last_upload'], size_to_str(s['size'])]
+            [s['name'], datetime_to_str(s['last_upload']), size_to_str(s['size'])]
             for s in remote_registry.values()
         ]
         print(tabulate(data, headers, tablefmt='github'))
@@ -71,14 +96,17 @@ class Application:
 
     def command_list(self, _):
         headers = ['Save name', 'Last modification', 'Last sync', 'Remote last upload', 'Remote size']
-        local_registry = self.local.registry
+        local_registry = self.local.get_registry()
         remote_registry = self.remote.get_registry()
         data = []
         for ls in local_registry.values():
             rs = remote_registry.get(ls['name'].lower(), {})
             data.append([
-                ls['name'], ls['last_modification'], ls.get('last_sync'),
-                rs.get('last_upload', ''), size_to_str(rs['size']) if rs else ''
+                ls['name'],
+                datetime_to_str(ls.get('last_modification')),
+                datetime_to_str(ls.get('last_sync')),
+                datetime_to_str(rs.get('last_upload')),
+                size_to_str(rs.get('size'))
             ])
         print(tabulate(data, headers, tablefmt='github'))
 
@@ -119,7 +147,7 @@ class Application:
 
     def command_load(self, save_name):
         print(f"Loading save {save_name}...")
-        local_save = self.local.registry[save_name]
+        local_save = self.local.get_registry()[save_name]
         tmp_file = self.temp_folder.joinpath(save_name)
         self.remote.load_save(local_save['name'], tmp_file)
         self.local.unpack_save_files(save_name, tmp_file)
@@ -129,7 +157,7 @@ class Application:
 
     def command_upload(self, save_name):
         print(f"Uploading save {save_name}...")
-        local_save = self.local.registry[save_name]
+        local_save = self.local.get_registry()[save_name]
         remote_registry = self.remote.get_registry()
         tmp_file = self.temp_folder.joinpath(save_name)
         self.local.pack_save_files(save_name, tmp_file)
@@ -147,10 +175,10 @@ class Application:
 
     def command_sync(self, save_name):
         if save_name == 'all':
-            for save in self.local.registry.values():
+            for save in self.local.get_registry().values():
                 self.command_sync(save['name'].lower())
             return
-        local_save = self.local.registry[save_name]
+        local_save = self.local.get_registry()[save_name]
         remote_save = self.remote.get_registry().get(save_name)
         remote_updated = (
             remote_save is not None and 
@@ -175,14 +203,6 @@ def create_remote(options):
         return FSRemote(options['folder'])
     else:
         raise ValueError("Remote is incorrect")
-    
-def size_to_str(size):
-    prefixes = ['b', 'Kb', 'Mb', 'Gb']
-    for prefix in prefixes:
-        if size < 1024:
-            return f"{size:.1f} {prefix}"
-        size /= 1024
-    return f"{size:.1f} Tb"
 
 def main():
     with open('remote_options.json') as fio:

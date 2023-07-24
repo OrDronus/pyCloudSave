@@ -1,5 +1,9 @@
-from pydrive.auth import GoogleAuth
-from pydrive.drive import GoogleDrive
+import json
+import re
+from datetime import datetime
+from common import transform_name
 
-gauth = GoogleAuth()           
-drive = GoogleDrive(gauth)  
+name = r"P.as __Юal's wag ._er_"
+
+print(transform_name(name))
+
