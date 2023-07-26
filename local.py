@@ -45,6 +45,7 @@ class Local:
             save['patterns'] = patterns
         if ignore:
             save['ignore'] = ignore
+        save['last_modification'] = self._get_last_mod_time(save)
         self._registry[lower_name] = save
         self._save_registry()
 

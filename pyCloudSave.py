@@ -72,7 +72,7 @@ class Application:
         else:
             command(' '.join(rem).lower())
 
-    def command_remote_list(self, _):
+    def command_remote_list(self, _=None):
         remote_registry = self.remote.get_registry()
         headers = ['Save name', 'Last upload', 'Size']
         data = [
@@ -94,7 +94,7 @@ class Application:
         self.remote.delete_save(save_name)
         print(f"Save {save_name} succesfully deleted.")
 
-    def command_list(self, _):
+    def command_list(self, _=None):
         headers = ['Save name', 'Last modification', 'Last sync', 'Remote last upload', 'Remote size']
         local_registry = self.local.get_registry()
         remote_registry = self.remote.get_registry()
@@ -110,7 +110,7 @@ class Application:
             ])
         print(tabulate(data, headers, tablefmt='github'))
 
-    def command_track(self, _):
+    def command_track(self, _=None):
         print("Adding new save to registry")
         save_name = input("Enter save name: ").strip()
         root_folder = input("Enter root folder: ").strip()
