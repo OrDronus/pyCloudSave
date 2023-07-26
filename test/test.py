@@ -64,7 +64,7 @@ class TestSuite():
         print()
 
         # Upload with sync
-        print(f"> sync{LOOKUP_NAME}")
+        print(f"> sync {LOOKUP_NAME}")
         app.command_sync(LOOKUP_NAME)
         app.command_list()
         print("File Tree:")
@@ -86,7 +86,7 @@ class TestSuite():
         print()
 
         # Untrack local
-        print(f"> untrack{LOOKUP_NAME}")
+        print(f"> untrack {LOOKUP_NAME}")
         app.command_untrack(LOOKUP_NAME)
         print("> list")
         app.command_list()

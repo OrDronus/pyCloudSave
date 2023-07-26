@@ -11,6 +11,7 @@ Local data (saved in home folder):
 Remote data:
 - Save name (name)
 - Last upload (last_upload)
+- File size (size)
 - File glob hint (pattern_hint) (optional)
 - Root folder hint (root_hint) (optional)
 

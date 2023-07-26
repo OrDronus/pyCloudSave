@@ -100,7 +100,7 @@ class Application:
         remote_registry = self.remote.get_registry()
         data = []
         for ls in local_registry.values():
-            rs = remote_registry.get(ls['name'].lower(), {})
+            rs = remote_registry.get(normalize_name(ls['name']), {})
             data.append([
                 ls['name'],
                 datetime_to_str(ls.get('last_modification')),

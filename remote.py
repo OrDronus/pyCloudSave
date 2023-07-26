@@ -7,6 +7,8 @@ from typing import Any
 from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive
 
+from common import normalize_name, json_default, DATETIME_FORMAT
+
 class Remote(ABC):
     @abstractmethod
     def get_registry(self) -> dict[str, dict[str, Any]]:
@@ -25,66 +27,65 @@ class Remote(ABC):
         pass
 
     @abstractmethod
-    def add_hints(self, save_name, hints: dict[str, str]):
+    def add_hints(self, save_name, pattern_hint='', root_hint=''):
         pass
 
 
 class FSRemote(Remote):
     def __init__(self, folder) -> None:
-        self.saves_folder = Path(folder).joinpath('saves')
-        self.saves_folder.mkdir(exist_ok=True, parents=True)
-        self.hints_file = Path(folder).joinpath('hints.json')
-
-    def _get_existing_saves(self):
-        return {file.name.lower(): file for file in self.saves_folder.iterdir() if file.is_file()}
+        self.main_folder = Path(folder)
+        self.registry_file = Path(folder).joinpath('registry.json')
+        self._registry = None
 
     def get_registry(self) -> dict[str, dict[str, Any]]:
-        saves = {}
-        hints = self._load_hints()
-        for lower_name, file in self._get_existing_saves().items():
-            stat = file.stat()
-            save = {
-                'name': file.name,
-                'last_upload': datetime.fromtimestamp(stat.st_mtime),
-                'size': stat.st_size
-            }
-            for add_attr in ('root_hint', 'pattern_hint', 'ignore_hint'):
-                if add_attr in hints.get(lower_name, {}):
-                    save[add_attr] = hints[lower_name][add_attr]
-            saves[lower_name] = save
-        return saves
+        if self._registry is None:
+            if self.registry_file.exists():
+                with open(self.registry_file) as fio:
+                    self._registry = json.load(fio)
+                for save in self._registry.values():
+                    save['last_upload'] = datetime.strptime(save['last_upload'], DATETIME_FORMAT)
+            else:
+                self._registry = {}
+        return self._registry
     
     def upload_save(self, save_name, file_to_upload):
-        existing_save = self._get_existing_saves().get(save_name.lower())
-        remote_path = existing_save or self.saves_folder.joinpath(save_name)
+        normalized_name = normalize_name(save_name)
+        remote_path = self.main_folder.joinpath(f"{normalized_name}.zip")
         shutil.copy(file_to_upload, remote_path)
+        registry = self.get_registry()
+        if normalized_name not in registry:
+            save = {'name': save_name}
+            registry[normalized_name] = save
+        save['last_upload'] = datetime.now()
+        save['size'] = Path(file_to_upload).stat().st_size
+        self._save_registry(registry)
 
     def load_save(self, save_name, output_file):
-        existing_save = self._get_existing_saves()[save_name.lower()]
-        shutil.copy(existing_save, output_file)
+        normalized_name = normalize_name(save_name)
+        remote_path = self.main_folder.joinpath(f"{normalized_name}.zip")
+        if not remote_path.is_file():
+            raise KeyError(f"Save {save_name} is not present in remote.")
+        shutil.copy(remote_path, output_file)
 
     def delete_save(self, save_name):
-        lower_name = save_name.lower()
-        existing_save = self._get_existing_saves()[lower_name]
-        existing_save.unlink()
-        hints = self._load_hints()
-        hints.pop(lower_name)
-        self._save_hints(hints)
+        normalized_name = normalize_name(save_name)
+        remote_path = self.main_folder.joinpath(f"{normalized_name}.zip")
+        remote_path.unlink()
+        registry = self.get_registry()
+        del registry[normalized_name]
+        self._save_registry(registry)
 
-    def add_hints(self, save_name, hints: dict[str, str]):
-        all_hints = self._load_hints()
-        all_hints[save_name.lower()] = hints
-        self._save_hints(all_hints)
+    def add_hints(self, save_name, pattern_hint='', root_hint=''):
+        registry = self.get_registry()
+        save = registry[normalize_name(save_name)]
+        save['pattern_hint'] = pattern_hint
+        save['root_hint'] = root_hint
+        self._save_registry(registry)
 
-    def _load_hints(self):
-        if not self.hints_file.exists():
-            return {}
-        with open(self.hints_file, 'r') as fio:
-            return json.load(fio)
-        
-    def _save_hints(self, hints):
-        with open(self.hints_file, 'w') as fio:
-            return json.dump(hints, fio)
+    def _save_registry(self, changed_registry):
+        self._registry = changed_registry
+        with open(self.registry_file, 'w') as fio:
+            return json.dump(changed_registry, fio, default=json_default)
 
 FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder'
 
