@@ -5,7 +5,7 @@ from io import StringIO
 from typing import Any
 from unittest.mock import patch
 
-import pyCloudSave
+from pyCloudSave import Application
 from remote import FSRemote
 
 SAVE_NAME = "Pascal's Wager"
@@ -23,7 +23,7 @@ class TestSuite():
     def test(self):
         self.set_up()
         err = None
-        with patch("pyCloudSave.sys.stdin", self.stdin):
+        with patch("pyCloudSave.input", self.input_mock):
             try:
                 self.perform_test()
             except Exception as e:
@@ -41,65 +41,58 @@ class TestSuite():
         self.remote_folder = self.temp_folder.joinpath("remote")
         self.remote_folder.mkdir()
         self.local_registry = self.temp_folder.joinpath("registry.json")
-        self.stdin = StringIO()
+        self.input_mock = InputMock()
+
+    def invoke_command(self, command, inputs=None):
+        remote = FSRemote(self.remote_folder)
+        app = Application(remote, self.local_registry)
+        print(f"> {command}")
+        if inputs:
+            self.input_mock.add_inputs(inputs)
+        app.parse_args(command.split())
+
+    def print_file_tree(self):
+        print("File Tree:")
+        print_ftree(self.temp_folder)
 
     def perform_test(self):
-        remote = FSRemote(self.remote_folder)
-        app = pyCloudSave.Application(remote, self.local_registry)
-
         # Empty List
-        print("> list")
-        app.command_list()
-        print()
-        print("> remote list")
-        app.command_remote_list()
+        self.invoke_command("list")
+        self.invoke_command("remote list")
         print()
 
         # Track save
-        print(f"> track\n> {SAVE_NAME}\n> {self.save_folder}\n>\n>\n")
-        self.stdin.write(f"{SAVE_NAME}\n{self.save_folder}\n\n\n")
-        self.stdin.seek(0)
-        app.command_track()
-        print("> list")
-        app.command_list()
+        self.input_mock.add_inputs([SAVE_NAME, str(self.save_folder)])
+        self.invoke_command("track")
+        self.invoke_command("list")
         print()
 
         # Upload with sync
-        print(f"> sync {LOOKUP_NAME}")
-        app.command_sync(LOOKUP_NAME)
-        app.command_list()
-        print("File Tree:")
-        print_ftree(self.temp_folder)
+        self.invoke_command(f"sync {LOOKUP_NAME}")
+        self.invoke_command("list")
+        self.print_file_tree()
         print()
 
-        # Delete local
+        # Delete local save files
         print("Deleting local files")
         clean_folder(self.save_folder)
-        print("File Tree:")
-        print_ftree(self.temp_folder)
+        self.print_file_tree()
         print()
 
         # Load back
-        print(f"> sync {LOOKUP_NAME}")
-        app.command_sync(LOOKUP_NAME)
-        print("File Tree:")
-        print_ftree(self.temp_folder)
+        self.invoke_command("sync all")
+        self.print_file_tree()
         print()
 
         # Untrack local
-        print(f"> untrack {LOOKUP_NAME}")
-        app.command_untrack(LOOKUP_NAME)
-        print("> list")
-        app.command_list()
-        print("> remote list")
-        app.command_remote_list()
+        self.invoke_command(f"untrack {SAVE_NAME}")
+        self.invoke_command("list")
+        self.invoke_command("remote list")
         print()
 
         # Delete remote
-        print(f"> remote delete {LOOKUP_NAME}")
-        app.command_remote_delete(LOOKUP_NAME)
-        print("> remote list")
-        app.command_remote_list()
+        self.invoke_command(f"remote delete {LOOKUP_NAME}")
+        self.invoke_command("remote list")
 
     def clean_up(self):
         shutil.rmtree(self.temp_folder)
@@ -107,9 +100,17 @@ class TestSuite():
 class InputMock():
     def __init__(self):
         self.queue = []
+
+    def add_inputs(self, inputs):
+        self.queue = list(reversed(inputs)) + self.queue
     
     def __call__(self, prompt='') -> Any:
-        pass
+        if not self.queue:
+            value = ''
+        else:
+            value = self.queue.pop()
+        print(f"{prompt}{value}")
+        return value
 
 def print_ftree(folder_path, indent=0):
     p = Path(folder_path)

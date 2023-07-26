@@ -182,8 +182,8 @@ class Application:
         local_save = self.local.get_registry()[save_name]
         remote_save = self.remote.get_registry().get(save_name, {})
         local_last_sync = local_save.get('last_sync', MIN_DATE)
-        local_last_modification = local_save.get('last_modification', MIN_DATE)
-        remote_last_upload = remote_save.get('last_upload', MIN_DATE)
+        local_last_modification = local_save.get('last_modification') or MIN_DATE
+        remote_last_upload = remote_save.get('last_upload') or MIN_DATE
         remote_updated = remote_last_upload > local_last_sync
         local_updated = local_last_modification > local_last_sync
         if remote_updated and local_updated:
