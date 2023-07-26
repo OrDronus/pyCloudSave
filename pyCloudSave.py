@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from numbers import Real
 from typing import Any, Union
 
-from remote import Remote, FSRemote
+from remote import Remote, FSRemote, GDriveRemote
 from local import Local
 from common import normalize_name, normalized_search
 
@@ -201,6 +201,8 @@ class Application:
 def create_remote(options):
     if options['type'] == 'localfs':
         return FSRemote(options['folder'])
+    elif options['type'] == 'gdrive':
+        return GDriveRemote()
     else:
         raise ValueError("Remote is incorrect")
 

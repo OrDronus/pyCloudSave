@@ -1,9 +1,32 @@
 import json
 import re
 from datetime import datetime
-from common import transform_name
+from common import normalize_name
 
 name = r"P.as __Юal's wag ._er_"
 
-print(transform_name(name))
+print(normalize_name(name))
 
+# from pydrive.auth import GoogleAuth
+# from pydrive.drive import GoogleDrive
+
+# gauth = GoogleAuth() 
+# gauth.LocalWebserverAuth()      
+# drive = GoogleDrive(gauth) 
+
+# Parsing '2023-06-30T12:58:49.695Z'
+import remote
+from remote import FOLDER_MIME_TYPE
+
+rem = remote.GDriveRemote()
+rem._init_drive()
+# print(rem._load_hints())
+# rem._save_hints({'Name': 'Bobby'})
+# print(rem._load_hints())
+file = rem._get_file(
+    f"title = 'pyCloudSave' and mimeType = '{FOLDER_MIME_TYPE}' and 'root' in parents and trashed = false"
+)
+if file:
+    print(file['title'])
+else:
+    print('Nothing')
