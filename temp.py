@@ -1,3 +1,3 @@
 import shutil
 
-shutil.rmtree(r"D:\Work\pyCloudSave\test\temp")
+print(6>None)

@@ -3,7 +3,7 @@ import json
 import shutil
 from pathlib import Path
 from tabulate import tabulate
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, MAXYEAR, MINYEAR
 from numbers import Real
 from typing import Any, Union
 
@@ -12,6 +12,7 @@ from local import Local
 from common import normalize_name, normalized_search
 
 DATETIME_PRINT_FORMAT = "%y-%m-%d %H:%M:%S"
+MIN_DATE = datetime(MINYEAR, 1, 1)
 
 def datetime_to_str(obj: Union[datetime, Any], default='-'):
     if not isinstance(obj, datetime):
@@ -179,18 +180,19 @@ class Application:
                 self.command_sync(save['name'].lower())
             return
         local_save = self.local.get_registry()[save_name]
-        remote_save = self.remote.get_registry().get(save_name)
-        remote_updated = (
-            remote_save is not None and 
-            (not local_save.get('last_sync') or remote_save['last_upload'] > local_save['last_sync'])
-        )
-        local_updated = (
-            local_save.get('last_modification') and
-            (not local_save.get('last_sync') or local_save['last_modification'] > local_save['last_sync'])
-        )
+        remote_save = self.remote.get_registry().get(save_name, {})
+        local_last_sync = local_save.get('last_sync', MIN_DATE)
+        local_last_modification = local_save.get('last_modification', MIN_DATE)
+        remote_last_upload = remote_save.get('last_upload', MIN_DATE)
+        remote_updated = remote_last_upload > local_last_sync
+        local_updated = local_last_modification > local_last_sync
         if remote_updated and local_updated:
             print(f"Warning, save files for {save_name} are out of sync, some data can be lost, please load or upload explicitly.")
-            data =[[local_save['last_modification'], local_save.get('last_sync'), remote_save['last_upload']]]
+            data =[[
+                datetime_to_str(local_save['last_modification']),
+                datetime_to_str(local_save.get('last_sync')),
+                datetime_to_str(remote_save['last_upload'])
+            ]]
             headers=['Local modification', 'Last synced', 'Remote uploaded']
             print(tabulate(data, headers, tablefmt='github'))
         elif local_updated:

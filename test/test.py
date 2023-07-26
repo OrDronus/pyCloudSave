@@ -2,6 +2,7 @@ import sys
 import shutil
 from pathlib import Path
 from io import StringIO
+from typing import Any
 from unittest.mock import patch
 
 import pyCloudSave
@@ -102,6 +103,13 @@ class TestSuite():
 
     def clean_up(self):
         shutil.rmtree(self.temp_folder)
+
+class InputMock():
+    def __init__(self):
+        self.queue = []
+    
+    def __call__(self, prompt='') -> Any:
+        pass
 
 def print_ftree(folder_path, indent=0):
     p = Path(folder_path)
