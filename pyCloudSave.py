@@ -71,7 +71,7 @@ class Application:
         except KeyError:
             print(f"Unknown command: {arg}")
         else:
-            command(' '.join(rem).lower())
+            command(normalize_name(' '.join(rem)))
 
     def command_remote_list(self, _=None):
         remote_registry = self.remote.get_registry()
@@ -147,32 +147,33 @@ class Application:
         self.local.untrack(save_name)
 
     def command_load(self, save_name):
-        print(f"Loading save {save_name}...")
         local_save = self.local.get_registry()[save_name]
+        print(f"Loading save {local_save['name']}...")
         tmp_file = self.temp_folder.joinpath(save_name)
-        self.remote.load_save(local_save['name'], tmp_file)
+        self.remote.load_save(save_name, tmp_file)
         self.local.unpack_save_files(save_name, tmp_file)
         self.local.edit(save_name, {'last_sync': datetime.now()})
         tmp_file.unlink()
-        print(f"Save {save_name} loaded.")
+        print(f"Save {local_save['name']} loaded.")
 
     def command_upload(self, save_name):
-        print(f"Uploading save {save_name}...")
         local_save = self.local.get_registry()[save_name]
+        print(f"Uploading save {local_save['name']}...")
         remote_registry = self.remote.get_registry()
-        tmp_file = self.temp_folder.joinpath(save_name)
-        self.local.pack_save_files(save_name, tmp_file)
-        self.remote.upload_save(local_save['name'], tmp_file)
-        self.local.edit(save_name, {'last_sync': datetime.now()+timedelta(seconds=1)})
-        tmp_file.unlink()
         if save_name not in remote_registry:
+            self.remote.register_new_save(local_save['name'])
             hints = {'root_hint': local_save['root']}
             if local_save.get('patterns'):
                 hints['patterns_hint']: local_save['patterns']
             if local_save.get('ignore'):
                 hints['ignore_hints']: local_save['ignore']
             self.remote.add_hints(save_name, hints)
-        print(f"Save {save_name} uploaded.")
+        tmp_file = self.temp_folder.joinpath(save_name)
+        self.local.pack_save_files(save_name, tmp_file)
+        self.remote.upload_save(save_name, tmp_file)
+        self.local.edit(save_name, {'last_sync': datetime.now()+timedelta(seconds=1)})
+        tmp_file.unlink()
+        print(f"Save {local_save['name']} uploaded.")
 
     def command_sync(self, save_name):
         if save_name == 'all':

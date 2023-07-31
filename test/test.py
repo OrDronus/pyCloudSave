@@ -80,7 +80,7 @@ class TestSuite():
         print()
 
         # Load back
-        self.invoke_command("sync all")
+        self.invoke_command(f"load {LOOKUP_NAME}")
         self.print_file_tree()
         print()
 

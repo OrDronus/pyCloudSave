@@ -15,6 +15,10 @@ class Remote(ABC):
         pass
 
     @abstractmethod
+    def register_new_save(self, save_name):
+        pass
+
+    @abstractmethod
     def upload_save(self, save_name, file_to_upload):
         pass
 
@@ -48,36 +52,36 @@ class FSRemote(Remote):
                 self._registry = {}
         return self._registry
     
-    def upload_save(self, save_name, file_to_upload):
-        normalized_name = normalize_name(save_name)
-        remote_path = self.main_folder.joinpath(f"{normalized_name}.zip")
-        shutil.copy(file_to_upload, remote_path)
+    def register_new_save(self, save_name):
         registry = self.get_registry()
-        if normalized_name not in registry:
-            save = {'name': save_name}
-            registry[normalized_name] = save
+        registry[normalize_name(save_name)] = {'name': save_name}
+        self._save_registry(registry)
+    
+    def upload_save(self, save_name, file_to_upload):
+        registry = self.get_registry()
+        save = registry[save_name]
+        remote_path = self.main_folder.joinpath(f"{save_name}.zip")
+        shutil.copy(file_to_upload, remote_path)
         save['last_upload'] = datetime.now()
         save['size'] = Path(file_to_upload).stat().st_size
         self._save_registry(registry)
 
     def load_save(self, save_name, output_file):
-        normalized_name = normalize_name(save_name)
-        remote_path = self.main_folder.joinpath(f"{normalized_name}.zip")
+        remote_path = self.main_folder.joinpath(f"{save_name}.zip")
         if not remote_path.is_file():
             raise KeyError(f"Save {save_name} is not present in remote.")
         shutil.copy(remote_path, output_file)
 
     def delete_save(self, save_name):
-        normalized_name = normalize_name(save_name)
-        remote_path = self.main_folder.joinpath(f"{normalized_name}.zip")
-        remote_path.unlink()
         registry = self.get_registry()
-        del registry[normalized_name]
+        del registry[save_name]
+        remote_path = self.main_folder.joinpath(f"{save_name}.zip")
+        remote_path.unlink()
         self._save_registry(registry)
 
     def add_hints(self, save_name, pattern_hint='', root_hint=''):
         registry = self.get_registry()
-        save = registry[normalize_name(save_name)]
+        save = registry[save_name]
         save['pattern_hint'] = pattern_hint
         save['root_hint'] = root_hint
         self._save_registry(registry)

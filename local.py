@@ -6,7 +6,7 @@ from datetime import datetime
 from collections.abc import Iterator
 from zipfile import ZipFile
 
-from common import DATETIME_FORMAT, json_default
+from common import DATETIME_FORMAT, json_default, normalize_name
 
 class Local:
     def __init__(self, registry_file=None) -> None:
@@ -34,8 +34,8 @@ class Local:
         return self._registry
 
     def track(self, name, root, patterns='', ignore=''):
-        lower_name = name.lower()
-        if lower_name in self._registry:
+        normalized_name = normalize_name(name)
+        if normalized_name in self._registry:
             raise KeyError(f"Save with the name {name} is already tracked.")
         save = {
             'name': name,
@@ -46,7 +46,7 @@ class Local:
         if ignore:
             save['ignore'] = ignore
         save['last_modification'] = self._get_last_mod_time(save)
-        self._registry[lower_name] = save
+        self._registry[normalized_name] = save
         self._save_registry()
 
     def edit(self, save_name, parameters):
