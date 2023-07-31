@@ -9,7 +9,7 @@ from pyCloudSave import Application
 from remote import FSRemote
 
 SAVE_NAME = "Pascal's Wager"
-LOOKUP_NAME = "pascal's wager"
+LOOKUP_NAME = "pascals wager"
 SAVE_STRUCTURE = {
     "data": {
         "settings.cfg": "Some settings",

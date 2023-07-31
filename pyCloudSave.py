@@ -29,14 +29,19 @@ def size_to_str(obj: Union[Real, Any], default='-'):
         obj /= 1024
     return f"{obj:.1f} Tb"
 
-def find_save(name: str, registry: dict):
-    result = normalized_search(registry, name)
-    if not result:
-        pass
+def find_save(registry: dict, name: str) -> tuple[str, dict]:
+    results = normalized_search(registry.keys(), name)
+    if not results:
+        raise AppError(f"No saves matching {name}.")
+    if len(results) > 1:
+        raise AppError(f"More than one save matches {name}: {', '.join(registry[s]['name'] for s in results)}.")
+    return results[0], registry[results[0]]
 
-class AppException(Exception):
-    pass
-
+class AppError(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message
+        
 class Application:
     def __init__(self, remote: Remote, local_registry=None) -> None:
         self.remote = remote
@@ -71,10 +76,15 @@ class Application:
         except KeyError:
             print(f"Unknown command: {arg}")
         else:
-            command(normalize_name(' '.join(rem)))
+            try:
+                command(' '.join(rem))
+            except AppError as err:
+                print(err.message)
 
     def command_remote_list(self, _=None):
         remote_registry = self.remote.get_registry()
+        if not remote_registry:
+            raise AppError("There are no saves in a remote.")
         headers = ['Save name', 'Last upload', 'Size']
         data = [
             [s['name'], datetime_to_str(s['last_upload']), size_to_str(s['size'])]
@@ -82,23 +92,25 @@ class Application:
         ]
         print(tabulate(data, headers, tablefmt='github'))
 
-    def command_remote_show(self, save_name):
-        remote_registry = self.remote.get_registry()
-        save = remote_registry[save_name]
+    def command_remote_show(self, search_name):
+        _, save = find_save(self.remote.get_registry(), search_name)
         for name, val in save.items():
             print(f"{name.replace('_', ' ').title()}: {val}")
 
-    def command_remote_hints(self, save_name):
-        print("This method is not yet implemented")
+    def command_remote_hints(self, search_name):
+        print("This method is not yet implemented.")
 
-    def command_remote_delete(self, save_name):
+    def command_remote_delete(self, search_name):
+        save_name, save = find_save(self.remote.get_registry(), search_name)
         self.remote.delete_save(save_name)
-        print(f"Save {save_name} succesfully deleted.")
+        print(f"Save {save['name']} succesfully deleted.")
 
     def command_list(self, _=None):
-        headers = ['Save name', 'Last modification', 'Last sync', 'Remote last upload', 'Remote size']
         local_registry = self.local.get_registry()
+        if not local_registry:
+            print("There are no currently tracked saves.")
         remote_registry = self.remote.get_registry()
+        headers = ['Save name', 'Last modification', 'Last sync', 'Remote last upload', 'Remote size']
         data = []
         for ls in local_registry.values():
             rs = remote_registry.get(normalize_name(ls['name']), {})
@@ -123,7 +135,7 @@ class Application:
             ).strip()
         self.local.track(save_name, root_folder, patterns, ignore)
 
-    def command_edit(self, save_name):
+    def command_edit(self, search_name):
         print("This method is not yet implemented")
         return
         save = self.local.registry[save_name]
@@ -142,12 +154,14 @@ class Application:
             new_parameters['patterns'] = patterns
         self.remote.edit_save(save_name, new_parameters)
 
-    def command_untrack(self, save_name):
+    def command_untrack(self, search_name):
         # Check for existence and ask user for confirmation
+        save_name, save = find_save(self.local.get_registry(), search_name)
         self.local.untrack(save_name)
+        print(f"Save {save['name']} successfully deleted.")
 
-    def command_load(self, save_name):
-        local_save = self.local.get_registry()[save_name]
+    def command_load(self, search_name):
+        save_name, local_save = find_save(self.local.get_registry(), search_name)
         print(f"Loading save {local_save['name']}...")
         tmp_file = self.temp_folder.joinpath(save_name)
         self.remote.load_save(save_name, tmp_file)
@@ -156,8 +170,8 @@ class Application:
         tmp_file.unlink()
         print(f"Save {local_save['name']} loaded.")
 
-    def command_upload(self, save_name):
-        local_save = self.local.get_registry()[save_name]
+    def command_upload(self, search_name):
+        save_name, local_save = find_save(self.local.get_registry(), search_name)
         print(f"Uploading save {local_save['name']}...")
         remote_registry = self.remote.get_registry()
         if save_name not in remote_registry:
@@ -175,12 +189,12 @@ class Application:
         tmp_file.unlink()
         print(f"Save {local_save['name']} uploaded.")
 
-    def command_sync(self, save_name):
-        if save_name == 'all':
-            for save in self.local.get_registry().values():
-                self.command_sync(save['name'].lower())
+    def command_sync(self, search_name):
+        if search_name.lower() == 'all':
+            for save_name in self.local.get_registry().keys():
+                self.command_sync(save_name)
             return
-        local_save = self.local.get_registry()[save_name]
+        save_name, local_save = find_save(self.local.get_registry(), search_name)
         remote_save = self.remote.get_registry().get(save_name, {})
         local_last_sync = local_save.get('last_sync', MIN_DATE)
         local_last_modification = local_save.get('last_modification') or MIN_DATE
@@ -200,6 +214,7 @@ class Application:
             self.command_upload(save_name)
         elif remote_updated:
             self.command_load(save_name)
+
 
 def create_remote(options):
     if options['type'] == 'localfs':

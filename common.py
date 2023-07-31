@@ -8,19 +8,25 @@ def json_default(obj):
         return datetime.strftime(obj, DATETIME_FORMAT)
     raise TypeError
 
-def normalize_name(name: str) -> str:
-    return '_'.join(p.lower() for p in re.split(r"[\W_]+", name) if p)
+def normalized_split(name: str) -> str:
+    for part in re.split(r"[\s_]+", name):
+        if part == "&":
+            part = "and"
+        part = re.sub(r"\W+", "", part.lower())
+        if part:
+            yield part
 
-def normalized_search(_dict: dict, name):
-    parts = [p.lower() for p in re.split(r"[\W_]+", name) if p]
+def normalize_name(name: str) -> str:
+    return '_'.join(normalized_split(name))
+
+def normalized_search(keys, name):
+    parts = list(normalized_split(name))
     exact_name = "_".join(parts)
-    try:
-        return [_dict[exact_name]]
-    except KeyError:
-        pass
+    if exact_name in keys:
+        return [exact_name]
     results = []
     regex = r".*".join(parts)
-    for key, value in _dict.items():
+    for key in keys:
         if re.search(regex, key):
-            results.append(value)
+            results.append(key)
     return results
