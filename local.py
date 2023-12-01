@@ -33,7 +33,7 @@ class Local:
     def get_registry(self):
         return self._registry
 
-    def track(self, name, root, patterns='', ignore=''):
+    def track(self, name, root, filters=None, version=None, ):
         normalized_name = normalize_name(name)
         if normalized_name in self._registry:
             raise KeyError(f"Save with the name {name} is already tracked.")

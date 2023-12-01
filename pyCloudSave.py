@@ -1,15 +1,18 @@
-import sys
+"Main module handles argment parsing and ties everything together"
+
+import argparse
 import json
-import shutil
-from pathlib import Path
-from tabulate import tabulate
-from datetime import datetime, timedelta, MAXYEAR, MINYEAR
+import sys
+from datetime import MINYEAR, datetime, timedelta
 from numbers import Real
+from pathlib import Path
 from typing import Any, Union
 
-from remote import Remote, FSRemote, GDriveRemote
-from local import Local
+from tabulate import tabulate
+
 from common import normalize_name, normalized_search
+from local import Local
+from remote import FSRemote, GDriveRemote, Remote
 
 DATETIME_PRINT_FORMAT = "%y-%m-%d %H:%M:%S"
 MIN_DATE = datetime(MINYEAR, 1, 1)
@@ -43,72 +46,85 @@ class AppError(Exception):
         self.message = message
         
 class Application:
-    def __init__(self, remote: Remote, local_registry=None) -> None:
+    def __init__(self, remote: Remote, local_registry=None):
         self.remote = remote
         self.local = Local(local_registry)
         self.temp_folder = Path(__file__).parent.joinpath('temp')
         self.temp_folder.mkdir(exist_ok=True)
 
     def parse_args(self, argv):
-        commands = {
-            'remote': {
-                'list': self.command_remote_list,
-                'show': self.command_remote_show,
-                'hints': self.command_remote_hints,
-                'delete': self.command_remote_delete
-            },
-            'list': self.command_list,
-            'track': self.command_track,
-            'untrack': self.command_untrack,
-            'edit': self.command_edit,
-            'load': self.command_load,
-            'upload': self.command_upload,
-            'sync': self.command_sync
-        }
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(required=True)
+
+        name_parser = argparse.ArgumentParser(add_help=False)
+        name_parser.add_argument('name', nargs='+')
+
+        list_parser = subparsers.add_parser('list')
+        list_parser.set_defaults(command=self.command_list)
+
+        show_parser = subparsers.add_parser('show', parents=[name_parser])
+        show_parser.set_defaults(command=self.command_show)
+
+        track_parser = subparsers.add_parser('track', aliases=['add'], parents=[name_parser])
+        track_parser.add_argument('--root', '-r', required=True)
+        track_parser.add_argument('--filters', '-f')
+        track_parser.add_argument('--version', '-v')
+        track_parser.set_defaults(commmand=self.command_track)
+
+        edit_parser = subparsers.add_parser('edit', parents=[name_parser])
+        edit_parser.add_argument('--new_name', '--name', '-n')
+        edit_parser.add_argument('--root', '-r')
+        edit_parser.add_argument('--filters', '-f')
+        edit_parser.add_argument('--version', '-v')
+        edit_parser.set_defaults(command=self.command_edit)
+
+        untrack_parser = subparsers.add_parser('untrack', aliases=['remove'], parents=[name_parser])
+        untrack_parser.set_defaults(commmand=self.command_untrack)
+
+        load_parser = subparsers.add_parser('load', parents=[name_parser])
+        load_parser.set_defaults(command=self.command_load)
+
+        upload_parser = subparsers.add_parser('upload', parents=[name_parser])
+        upload_parser.set_defaults(command=self.command_upload)
+
+        sync_parser = subparsers.add_parser('sync', parents=[name_parser])
+        sync_parser.set_defaults(command=self.command_sync)
+
+        remote_parser = subparsers.add_parser('remote')
+        remote_subparsers = remote_parser.add_subparsers(required=True)
+
+        remote_list_parser = remote_subparsers.add_parser('list', parents=[name_parser])
+        remote_list_parser.set_defaults(command=self.command_remote_list)
+
+        remote_show_parser = remote_subparsers.add_parser('show', parents=[name_parser])
+        remote_show_parser.set_defaults(command=self.command_remote_show)
+
+        remote_edit_parser = remote_subparsers.add_parser('edit', parents=[name_parser])
+        remote_edit_parser.add_argument('--new_name', '--name', '-n')
+        remote_edit_parser.add_argument('--version', '-v')
+        remote_edit_parser.add_argument('--root', '-r')
+        remote_edit_parser.add_argument('--filters', '-f')
+        remote_edit_parser.set_defaults(command=self.command_remote_edit)
+
+        remote_delete_parser = remote_subparsers.add_parser('delete', parents=[name_parser])
+        remote_delete_parser.set_defaults(command=self.command_remote_delete)
+
+        args = parser.parse_args(argv)
+        if 'name' in args:
+            if len(args.name) > 1:
+                args.name = ' '.join(args.name)
+            else:
+                args.name = args.name[0]
         try:
-            arg = argv[0].lower()
-            rem = argv[1:]
-            command = commands[arg]
-            if isinstance(command, dict):
-                arg = rem[0].lower()
-                rem = rem[1:]
-                command = command[arg]
-        except KeyError:
-            print(f"Unknown command: {arg}")
-        else:
-            try:
-                command(' '.join(rem))
-            except AppError as err:
-                print(err.message)
+            args.command(args)
+        except AppError as err:
+            print(err.message)
 
-    def command_remote_list(self, _=None):
-        remote_registry = self.remote.get_registry()
-        if not remote_registry:
-            raise AppError("There are no saves in a remote.")
-        headers = ['Save name', 'Last upload', 'Size']
-        data = [
-            [s['name'], datetime_to_str(s['last_upload']), size_to_str(s['size'])]
-            for s in remote_registry.values()
-        ]
-        print(tabulate(data, headers, tablefmt='github'))
-
-    def command_remote_show(self, search_name):
-        _, save = find_save(self.remote.get_registry(), search_name)
-        for name, val in save.items():
-            print(f"{name.replace('_', ' ').title()}: {val}")
-
-    def command_remote_hints(self, search_name):
-        print("This method is not yet implemented.")
-
-    def command_remote_delete(self, search_name):
-        save_name, save = find_save(self.remote.get_registry(), search_name)
-        self.remote.delete_save(save_name)
-        print(f"Save {save['name']} succesfully deleted.")
-
-    def command_list(self, _=None):
+    def command_list(self, _):
         local_registry = self.local.get_registry()
         if not local_registry:
             print("There are no currently tracked saves.")
+            return
         remote_registry = self.remote.get_registry()
         headers = ['Save name', 'Last modification', 'Last sync', 'Remote last upload', 'Remote size']
         data = []
@@ -123,19 +139,14 @@ class Application:
             ])
         print(tabulate(data, headers, tablefmt='github'))
 
-    def command_track(self, _=None):
-        print("Adding new save to registry")
-        save_name = input("Enter save name: ").strip()
-        root_folder = input("Enter root folder: ").strip()
-        patterns = input(
-            "Enter one or several comma separated file patterns (optional): "
-            ).strip()
-        ignore = input(
-            "Enter one or several comma separated ignore rules (optional): "
-            ).strip()
-        self.local.track(save_name, root_folder, patterns, ignore)
+    def command_show(self, args):
+        print("This command is not implemented yet.")
 
-    def command_edit(self, search_name):
+    def command_track(self, args):
+        print(f"Adding new save to registry: {args.name}")
+        self.local.track(args.name, args.root, args.filters, args.version)
+    
+    def command_edit(self, args):
         print("This method is not yet implemented")
         return
         save = self.local.registry[save_name]
@@ -154,14 +165,14 @@ class Application:
             new_parameters['patterns'] = patterns
         self.remote.edit_save(save_name, new_parameters)
 
-    def command_untrack(self, search_name):
+    def command_untrack(self, args):
         # Check for existence and ask user for confirmation
-        save_name, save = find_save(self.local.get_registry(), search_name)
+        save_name, save = find_save(self.local.get_registry(), args.name)
         self.local.untrack(save_name)
         print(f"Save {save['name']} successfully deleted.")
-
-    def command_load(self, search_name):
-        save_name, local_save = find_save(self.local.get_registry(), search_name)
+    
+    def command_load(self, args):
+        save_name, local_save = find_save(self.local.get_registry(), args.name)
         print(f"Loading save {local_save['name']}...")
         tmp_file = self.temp_folder.joinpath(save_name)
         self.remote.load_save(save_name, tmp_file)
@@ -170,8 +181,8 @@ class Application:
         tmp_file.unlink()
         print(f"Save {local_save['name']} loaded.")
 
-    def command_upload(self, search_name):
-        save_name, local_save = find_save(self.local.get_registry(), search_name)
+    def command_upload(self, args):
+        save_name, local_save = find_save(self.local.get_registry(), args.name)
         print(f"Uploading save {local_save['name']}...")
         remote_registry = self.remote.get_registry()
         if save_name not in remote_registry:
@@ -189,12 +200,12 @@ class Application:
         tmp_file.unlink()
         print(f"Save {local_save['name']} uploaded.")
 
-    def command_sync(self, search_name):
-        if search_name.lower() == 'all':
+    def command_sync(self, args):
+        if args.name in ('--all', '-a'):
             for save_name in self.local.get_registry().keys():
                 self.command_sync(save_name)
             return
-        save_name, local_save = find_save(self.local.get_registry(), search_name)
+        save_name, local_save = find_save(self.local.get_registry(), args.name)
         remote_save = self.remote.get_registry().get(save_name, {})
         local_last_sync = local_save.get('last_sync', MIN_DATE)
         local_last_modification = local_save.get('last_modification') or MIN_DATE
@@ -214,6 +225,30 @@ class Application:
             self.command_upload(save_name)
         elif remote_updated:
             self.command_load(save_name)
+
+    def command_remote_list(self, _):
+        remote_registry = self.remote.get_registry()
+        if not remote_registry:
+            raise AppError("There are no saves in a remote.")
+        headers = ['Save name', 'Last upload', 'Size']
+        data = [
+            [s['name'], datetime_to_str(s['last_upload']), size_to_str(s['size'])]
+            for s in remote_registry.values()
+        ]
+        print(tabulate(data, headers, tablefmt='github'))
+
+    def command_remote_show(self, args):
+        _, save = find_save(self.remote.get_registry(), args.name)
+        for name, val in save.items():
+            print(f"{name.replace('_', ' ').title()}: {val}")
+
+    def command_remote_edit(self, args):
+        print("This method is not yet implemented.")
+
+    def command_remote_delete(self, args):
+        save_name, save = find_save(self.remote.get_registry(), args.name)
+        self.remote.delete_save(save_name)
+        print(f"Save {save['name']} succesfully deleted.")
 
 
 def create_remote(options):
