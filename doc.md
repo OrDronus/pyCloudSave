@@ -34,6 +34,11 @@ Commands:
     - edit SAVE_NAME [options]
     - delete SAVE_NAME
 
+Filter format:
+"*" - any nuber of any symbols
+"/" or "\" namepath separator (will be converted)
+"!" as the first character - filter is inverted
+
 Date format:
 yy-mm-dd hh:mm:ss
 

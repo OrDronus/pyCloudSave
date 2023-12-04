@@ -69,7 +69,7 @@ class Application:
         track_parser.add_argument('--root', '-r', required=True)
         track_parser.add_argument('--filters', '-f')
         track_parser.add_argument('--version', '-v')
-        track_parser.set_defaults(commmand=self.command_track)
+        track_parser.set_defaults(command=self.command_track)
 
         edit_parser = subparsers.add_parser('edit', parents=[name_parser])
         edit_parser.add_argument('--new_name', '--name', '-n')
@@ -79,7 +79,7 @@ class Application:
         edit_parser.set_defaults(command=self.command_edit)
 
         untrack_parser = subparsers.add_parser('untrack', aliases=['remove'], parents=[name_parser])
-        untrack_parser.set_defaults(commmand=self.command_untrack)
+        untrack_parser.set_defaults(command=self.command_untrack)
 
         load_parser = subparsers.add_parser('load', parents=[name_parser])
         load_parser.set_defaults(command=self.command_load)
@@ -93,7 +93,7 @@ class Application:
         remote_parser = subparsers.add_parser('remote')
         remote_subparsers = remote_parser.add_subparsers(required=True)
 
-        remote_list_parser = remote_subparsers.add_parser('list', parents=[name_parser])
+        remote_list_parser = remote_subparsers.add_parser('list')
         remote_list_parser.set_defaults(command=self.command_remote_list)
 
         remote_show_parser = remote_subparsers.add_parser('show', parents=[name_parser])
