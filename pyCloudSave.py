@@ -14,7 +14,7 @@ from common import normalize_name, normalized_search
 from local import Local
 from remote import FSRemote, GDriveRemote, Remote
 
-DATETIME_PRINT_FORMAT = "%y-%m-%d %H:%M:%S"
+DATETIME_PRINT_FORMAT = "%d.%m.%y %H:%M:%S"
 MIN_DATE = datetime(MINYEAR, 1, 1)
 
 def datetime_to_str(obj: Union[datetime, Any], default='-'):
@@ -140,7 +140,20 @@ class Application:
         print(tabulate(data, headers, tablefmt='github'))
 
     def command_show(self, args):
-        print("This command is not implemented yet.")
+        save_name, save = find_save(self.local.get_registry(), args.name)
+        print(f"Game name: {save['name']}")
+        if save['version']:
+            print(f"Game version: {save['version']}")
+        print(f"Root folder: {save['root']}")
+        if save['filters']:
+            print(f"Filters: {save['filters']}")
+        print(f"Last modification: {datetime_to_str(save['last_modification'])}")
+        print(f"Last sync: {datetime_to_str(save['last_sync'])}")
+        remote_save = self.remote.get_registry().get(save_name)
+        if not remote_save:
+            return
+        print(f"Remote last upload: {remote_save['last_upload']}")
+        print(f"Remote size: {size_to_str(remote_save['size'])}")
 
     def command_track(self, args):
         print(f"Adding new save to registry: {args.name}")

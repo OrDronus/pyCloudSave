@@ -23,7 +23,7 @@ class Local:
         with open(self.registry_file) as fio:
             self._registry = json.load(fio)
         for save in self._registry.values():
-            if 'last_sync' in save:
+            if save['last_sync']:
                 save['last_sync'] = datetime.strptime(save['last_sync'], DATETIME_FORMAT)
             save['last_modification'] = self._get_last_mod_time(save) 
     
@@ -42,7 +42,8 @@ class Local:
             'name': name,
             'root': root,
             'filters': filters or "",
-            'version': version
+            'version': version,
+            'last_sync': None
         }
         save['last_modification'] = self._get_last_mod_time(save)
         self._registry[normalized_name] = save
