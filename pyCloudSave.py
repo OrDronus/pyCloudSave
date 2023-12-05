@@ -242,7 +242,7 @@ class Application:
         tmp_file = self.temp_folder.joinpath(save_name)
         self.remote.load_save(save_name, tmp_file)
         self.local.unpack_save_files(save_name, tmp_file)
-        self.local.edit(save_name, {'last_sync': datetime.now()})
+        self.local.edit(save_name, last_sync=datetime.now())
         tmp_file.unlink()
         print(f"Save {local_save['name']} loaded.")
 

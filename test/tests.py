@@ -89,16 +89,10 @@ class IntegrationTest(unittest.TestCase):
         output = self.invoke_command(r'remote list')
         self.assertIn(SAVE_NAME, output)
 
-        # # Delete local save files
-        # print("Deleting local files")
-        # clean_folder(self.save_folder)
-        # self.print_file_tree()
-        # print()
-
-        # # Load back
-        # self.invoke_command(f"load {LOOKUP_NAME}")
-        # self.print_file_tree()
-        # print()
+        # Delete local save files and load back
+        clean_folder(SAVE_FOLDER)
+        self.invoke_command(f"load {LOOKUP_NAME}")
+        self.assertCountEqual(list_files(SAVE_FOLDER), ['save2.dat'])
 
         # # Untrack local
         # self.invoke_command(f"untrack {SAVE_NAME}")
@@ -132,12 +126,14 @@ def split_args(string):
 def count_lines(string):
     return len(re.findall(r"^.*?\S+.*?$", string, flags=re.M))
 
-def print_ftree(folder_path, indent=0):
-    p = Path(folder_path)
-    for file in p.iterdir():
-        print(" "*indent, file.name, sep="")
-        if file.is_dir():
-            print_ftree(file, indent+2)
+def list_files(folder):
+    p = Path(folder)
+    result = []
+    for file in p.glob("**/*"):
+        if not file.is_file():
+            continue
+        result.append(str(file.relative_to(p)))
+    return result
 
 def create_file_structure(folder, structure):
     for name, value in structure.items():
