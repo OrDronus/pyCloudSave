@@ -7,9 +7,10 @@ Local saves:
 - Root folder - root
 - Filters - filters (optional)
 - Game version - version (optional)
-- Last upload - last_upload (auto)
+- Last sync - last_sync (auto)
 - Last modified - last_modified (calculated)
-
+- ID name - id_name (name in a dictionary)
+ 
 Remote saves:
 - Save name - name
 - Root folder hint - root_hint (optional)

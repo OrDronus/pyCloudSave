@@ -68,14 +68,26 @@ class IntegrationTest(unittest.TestCase):
         # Tracking a new save
         self.invoke_command(f'add {SAVE_NAME} -r "{SAVE_FOLDER}"')        
         output = self.invoke_command("list")
-        self.assertRegex(output, rf".*{SAVE_NAME}")
+        self.assertIn(SAVE_NAME, output)
         self.assertEqual(count_lines(output), 3)
 
-        # # Upload with sync
-        # self.invoke_command(f"sync {LOOKUP_NAME}")
-        # self.invoke_command("list")
-        # self.print_file_tree()
-        # print()
+        # Checking saved data
+        output = self.invoke_command(f"show {LOOKUP_NAME}")
+        self.assertIn(SAVE_NAME, output)
+        self.assertIn(str(SAVE_FOLDER), output)
+
+        # Editing a save
+        save_filters = "*dat, !*save1*"
+        game_version = "1.23"
+        self.invoke_command(f'edit {LOOKUP_NAME} -f "{save_filters}" -v "{game_version}"')
+        output = self.invoke_command(f'show {LOOKUP_NAME}')
+        self.assertIn(save_filters, output)
+        self.assertIn(game_version, output)
+
+        # Upload with sync
+        self.invoke_command(f'sync {LOOKUP_NAME}')
+        output = self.invoke_command(r'remote list')
+        self.assertIn(SAVE_NAME, output)
 
         # # Delete local save files
         # print("Deleting local files")
@@ -114,7 +126,7 @@ class InputMock():
         return value
 
 def split_args(string):
-    result = re.findall(r"\".*?\"|\S+", string)
+    result = re.findall(r"\".*?\"|\'.*?\'|\S+", string)
     return [arg.strip('"') for arg in result]
 
 def count_lines(string):

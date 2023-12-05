@@ -21,40 +21,58 @@ class Local:
             self._registry = {}
             return
         with open(self.registry_file) as fio:
-            self._registry = json.load(fio)
-        for save in self._registry.values():
+            registry = json.load(fio)
+        for id_name, save in registry.items():
             if save['last_sync']:
                 save['last_sync'] = datetime.strptime(save['last_sync'], DATETIME_FORMAT)
-            save['last_modification'] = self._get_last_mod_time(save) 
-    
+            save['last_modification'] = self._get_last_mod_time(save)
+            save['id_name'] = id_name
+        self._registry = registry
+
     def _save_registry(self):
+        data = {}
+        for id_name, save in self._registry.items():
+            save_data = {k: v for k, v in save.items() if k in ('name', 'root', 'filters', 'version')}
+            save_data['last_sync'] = datetime.strftime(save['last_sync'], DATETIME_FORMAT) if save['last_sync'] else None
+            data[id_name] = save_data
         with open(self.registry_file, 'w') as fio:
-            json.dump(self._registry, fio, indent=4, default=json_default)
+            json.dump(data, fio, indent=4, default=json_default)
 
     def get_registry(self):
         return self._registry
 
     def track(self, name, root, filters=None, version=None, ):
-        normalized_name = normalize_name(name)
-        if normalized_name in self._registry:
+        id_name = normalize_name(name)
+        if id_name in self._registry:
             raise KeyError(f"Save with the name {name} is already tracked.")
         save = {
             'name': name,
             'root': root,
             'filters': filters or "",
             'version': version,
-            'last_sync': None
+            'last_sync': None,
+            'id_name': id_name
         }
         save['last_modification'] = self._get_last_mod_time(save)
-        self._registry[normalized_name] = save
+        self._registry[id_name] = save
         self._save_registry()
 
-    def edit(self, save_name, parameters):
-        self._registry[save_name].update(parameters)
-        new_name = parameters.get('name', save_name).lower()
-        if new_name != save_name:
-            self._registry[new_name] = self._registry[save_name]
-            del self._registry[save_name]
+    def edit(self, save_name, new_name=None, root=None, filters=None, version=None, last_sync=None):
+        save = self._registry[save_name]
+        if root:
+            save['root'] = root
+        if filters:
+            save['filters'] = filters
+        if version:
+            save['version'] = version
+        if last_sync:
+            save['last_sync'] = last_sync
+        if new_name:
+            save['name'] = new_name
+            new_id_name = normalize_name(new_name)
+            if new_id_name != save_name:
+                self._registry[new_id_name] = save
+                del self._registry[save_name]
         self._save_registry()
 
     def untrack(self, name):
@@ -75,6 +93,7 @@ class Local:
         include = []
         ignore = []
         for _filter in (f for f in re.split(r"\s*\,\s*", save['filters']) if f):
+            neg = False
             if _filter.startswith('!'):
                 _filter = _filter[1:]
                 neg = True

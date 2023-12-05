@@ -16,6 +16,7 @@ from remote import FSRemote, GDriveRemote, Remote
 
 DATETIME_PRINT_FORMAT = "%d.%m.%y %H:%M:%S"
 MIN_DATE = datetime(MINYEAR, 1, 1)
+YES, NO, YESALL, NOALL = 1, 2, 3, 4
 
 def datetime_to_str(obj: Union[datetime, Any], default='-'):
     if not isinstance(obj, datetime):
@@ -160,69 +161,52 @@ class Application:
         self.local.track(args.name, args.root, args.filters, args.version)
     
     def command_edit(self, args):
-        print("This method is not yet implemented")
-        return
-        save = self.local.registry[save_name]
-        new_parameters = {}
-        print("Editing save. You can leave any field blank to keep a value unchanged.")
-        save_name = input(f"Save name: {save['name']}\nNew value: ").strip()
-        if save_name:
-            new_parameters['name'] = save_name
-        root_folder = input(f"Root folder: {save['root']}\nNew value: ").strip()
-        if root_folder:
-            new_parameters['root'] = root_folder
-        patterns = input(
-            f"File patterns: {save['patterns']} (Default: **\\*)\nNew value: "
-            ).strip()
-        if patterns:
-            new_parameters['patterns'] = patterns
-        self.remote.edit_save(save_name, new_parameters)
+        save_name, local_save = find_save(self.local.get_registry(), args.name)
+        self.local.edit(save_name, args.new_name, args.root, args.filters, args.version)
+        remote_save = self.remote.get_registry().get(save_name)
+        if not remote_save:
+            return
+        asker = YesNoAsker()
+        remote_args = {}
+        if args.new_name and asker.ask("Do you want to update game's name in remote as well?"):
+            remote_args['new_name'] = args.new_name
+        if args.root and asker.ask("Do you want to update root hint in remote as well?"):
+            remote_args['root_hint'] = args.root
+        if args.filters and asker.ask("Do you want to update filters hint in remote as well?"):
+            remote_args['filters_hint'] = args.filters
+        if args.version and remote_save['last_upload'] == local_save['last_sync'] and asker.ask("Do you want to update game version in remote as well?"):
+            remote_args['version'] = args.version
+        if remote_args:
+            self.remote.edit_save(save_name, **remote_args)
 
     def command_untrack(self, args):
         # Check for existence and ask user for confirmation
         save_name, save = find_save(self.local.get_registry(), args.name)
         self.local.untrack(save_name)
         print(f"Save {save['name']} successfully deleted.")
-    
-    def command_load(self, args):
-        save_name, local_save = find_save(self.local.get_registry(), args.name)
-        print(f"Loading save {local_save['name']}...")
-        tmp_file = self.temp_folder.joinpath(save_name)
-        self.remote.load_save(save_name, tmp_file)
-        self.local.unpack_save_files(save_name, tmp_file)
-        self.local.edit(save_name, {'last_sync': datetime.now()})
-        tmp_file.unlink()
-        print(f"Save {local_save['name']} loaded.")
 
     def command_upload(self, args):
-        save_name, local_save = find_save(self.local.get_registry(), args.name)
-        print(f"Uploading save {local_save['name']}...")
-        remote_registry = self.remote.get_registry()
-        if save_name not in remote_registry:
-            self.remote.register_new_save(local_save['name'])
-            hints = {'root_hint': local_save['root']}
-            if local_save.get('patterns'):
-                hints['patterns_hint']: local_save['patterns']
-            if local_save.get('ignore'):
-                hints['ignore_hints']: local_save['ignore']
-            self.remote.add_hints(save_name, hints)
-        tmp_file = self.temp_folder.joinpath(save_name)
-        self.local.pack_save_files(save_name, tmp_file)
-        self.remote.upload_save(save_name, tmp_file)
-        self.local.edit(save_name, {'last_sync': datetime.now()+timedelta(seconds=1)})
-        tmp_file.unlink()
-        print(f"Save {local_save['name']} uploaded.")
+        save_name, _ = find_save(self.local.get_registry(), args.name)
+        self._upload(save_name)
+
+    def command_load(self, args):
+        save_name, _ = find_save(self.local.get_registry(), args.name)
+        self._load(save_name)
 
     def command_sync(self, args):
         if args.name in ('--all', '-a'):
             for save_name in self.local.get_registry().keys():
-                self.command_sync(save_name)
-            return
-        save_name, local_save = find_save(self.local.get_registry(), args.name)
-        remote_save = self.remote.get_registry().get(save_name, {})
-        local_last_sync = local_save.get('last_sync', MIN_DATE)
-        local_last_modification = local_save.get('last_modification') or MIN_DATE
-        remote_last_upload = remote_save.get('last_upload') or MIN_DATE
+                self._sync(save_name)
+        else:
+            save_name, _ = find_save(self.local.get_registry(), args.name)
+            self._sync(save_name)
+
+    def _sync(self, save_name):
+        local_save = self.local.get_registry()[save_name]
+        remote_save = self.remote.get_registry().get(save_name)
+        remote_last_upload = remote_save['last_upload'] if (remote_save and remote_save['last_upload']) else MIN_DATE
+        local_last_sync = local_save['last_sync'] or MIN_DATE
+        local_last_modification = local_save['last_modification'] or MIN_DATE
         remote_updated = remote_last_upload > local_last_sync
         local_updated = local_last_modification > local_last_sync
         if remote_updated and local_updated:
@@ -232,12 +216,35 @@ class Application:
                 datetime_to_str(local_save.get('last_sync')),
                 datetime_to_str(remote_save['last_upload'])
             ]]
-            headers=['Local modification', 'Last synced', 'Remote uploaded']
+            headers=['Local modification', 'Last synced', 'Remote last upload']
             print(tabulate(data, headers, tablefmt='github'))
         elif local_updated:
-            self.command_upload(save_name)
+            self._upload(save_name)
         elif remote_updated:
-            self.command_load(save_name)
+            self._load(save_name)
+
+    def _upload(self, save_name):
+        local_save = self.local.get_registry()[save_name]
+        print(f"Uploading save {local_save['name']}...")
+        remote_registry = self.remote.get_registry()
+        if save_name not in remote_registry:
+            self.remote.register_new_save(local_save['name'], local_save['root'], local_save['filters'], local_save['version'])
+        tmp_file = self.temp_folder.joinpath(save_name)
+        self.local.pack_save_files(save_name, tmp_file)
+        self.remote.upload_save(save_name, tmp_file)
+        self.local.edit(save_name, last_sync=datetime.now()+timedelta(seconds=1))
+        tmp_file.unlink()
+        print(f"Save {local_save['name']} uploaded.")
+
+    def _load(self, save_name):
+        local_save = self.local.get_registry()[save_name]
+        print(f"Loading save {local_save['name']}...")
+        tmp_file = self.temp_folder.joinpath(save_name)
+        self.remote.load_save(save_name, tmp_file)
+        self.local.unpack_save_files(save_name, tmp_file)
+        self.local.edit(save_name, {'last_sync': datetime.now()})
+        tmp_file.unlink()
+        print(f"Save {local_save['name']} loaded.")
 
     def command_remote_list(self, _):
         remote_registry = self.remote.get_registry()
@@ -263,6 +270,31 @@ class Application:
         self.remote.delete_save(save_name)
         print(f"Save {save['name']} succesfully deleted.")
 
+class YesNoAsker:
+    def __init__(self):
+        self.yes_all = False
+        self.no_all = False
+    
+    def ask(self, message=None):
+        if self.yes_all:
+            return True
+        if self.no_all:
+            return False
+        if message:
+            print(message)
+        while True:
+            res = input("yes/no/yes all/no all: ").lower()
+            if res in ('y', 'yes'):
+                return True
+            elif res in ('n', 'no'):
+                return False
+            elif res in ('ya', 'yesall', 'yes all'):
+                self.yes_all = True
+                return True
+            elif res in ('na', 'noall', 'no all'):
+                self.no_all = True
+                return False
+
 
 def create_remote(options):
     if options['type'] == 'localfs':
@@ -271,6 +303,18 @@ def create_remote(options):
         return GDriveRemote()
     else:
         raise ValueError("Remote is incorrect")
+
+def yes_no_all_dialog():
+    while True:
+        res = input("yes/no/yes all/no all: ").lower()
+        if res in ('y', 'yes'):
+            return YES
+        elif res in ('n', 'no'):
+            return NO
+        elif res in ('ya', 'yesall', 'yes all'):
+            return YESALL
+        elif res in ('na', 'noall', 'no all'):
+            return NOALL
 
 def main():
     with open('remote_options.json') as fio:

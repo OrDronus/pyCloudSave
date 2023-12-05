@@ -15,23 +15,23 @@ class Remote(ABC):
         pass
 
     @abstractmethod
-    def register_new_save(self, save_name):
+    def register_new_save(self, name, root_hint=None, filters_hint=None, version=None):
         pass
 
     @abstractmethod
-    def upload_save(self, save_name, file_to_upload):
+    def edit_save(self, id_name, new_name=None, root_hint=None, filters_hint=None, version=None):
         pass
 
     @abstractmethod
-    def load_save(self, save_name, output_file):
+    def upload_save(self, id_name, file_to_upload):
         pass
 
     @abstractmethod
-    def delete_save(self, save_name):
+    def load_save(self, id_name, output_file):
         pass
 
     @abstractmethod
-    def add_hints(self, save_name, pattern_hint='', root_hint=''):
+    def delete_save(self, id_name):
         pass
 
 
@@ -52,38 +52,57 @@ class FSRemote(Remote):
                 self._registry = {}
         return self._registry
     
-    def register_new_save(self, save_name):
+    def register_new_save(self, name, root_hint=None, filters_hint=None, version=None):
         registry = self.get_registry()
-        registry[normalize_name(save_name)] = {'name': save_name}
+        registry[normalize_name(name)] = {
+            'name': name,
+            'root_hint': root_hint,
+            'filters_hint': filters_hint,
+            'version': version,
+            'last_upload': None
+        }
+        self._save_registry(registry)
+
+    def edit_save(self, id_name, new_name=None, root_hint=None, filters_hint=None, version=None):
+        registry = self.get_registry()
+        save = registry[id_name]
+        if root_hint:
+            save['root_hint'] = root_hint
+        if filters_hint:
+            save['filters_hint'] = filters_hint
+        if version:
+            save['version'] = version
+        if new_name:
+            new_id_name = normalize_name(new_name)
+            save['name'] = new_name
+            if id_name != new_id_name:
+                registry[new_id_name] = save
+                del registry[new_id_name]
+                filepath = self.main_folder.joinpath(f"{id_name}.zip")
+                new_filepath = self.main_folder.joinpath(f"{new_id_name}.zip")
+                filepath.rename(new_filepath)
         self._save_registry(registry)
     
-    def upload_save(self, save_name, file_to_upload):
+    def upload_save(self, id_name, file_to_upload):
         registry = self.get_registry()
-        save = registry[save_name]
-        remote_path = self.main_folder.joinpath(f"{save_name}.zip")
+        save = registry[id_name]
+        remote_path = self.main_folder.joinpath(f"{id_name}.zip")
         shutil.copy(file_to_upload, remote_path)
         save['last_upload'] = datetime.now()
         save['size'] = Path(file_to_upload).stat().st_size
         self._save_registry(registry)
 
-    def load_save(self, save_name, output_file):
-        remote_path = self.main_folder.joinpath(f"{save_name}.zip")
+    def load_save(self, id_name, output_file):
+        remote_path = self.main_folder.joinpath(f"{id_name}.zip")
         if not remote_path.is_file():
-            raise KeyError(f"Save {save_name} is not present in remote.")
+            raise KeyError(f"Save {id_name} is not present in remote.")
         shutil.copy(remote_path, output_file)
 
-    def delete_save(self, save_name):
+    def delete_save(self, id_name):
         registry = self.get_registry()
-        del registry[save_name]
-        remote_path = self.main_folder.joinpath(f"{save_name}.zip")
+        del registry[id_name]
+        remote_path = self.main_folder.joinpath(f"{id_name}.zip")
         remote_path.unlink()
-        self._save_registry(registry)
-
-    def add_hints(self, save_name, pattern_hint='', root_hint=''):
-        registry = self.get_registry()
-        save = registry[save_name]
-        save['pattern_hint'] = pattern_hint
-        save['root_hint'] = root_hint
         self._save_registry(registry)
 
     def _save_registry(self, changed_registry):
@@ -139,40 +158,40 @@ class GDriveRemote(Remote):
         self._registry = registry
         return registry
 
-    def upload_save(self, save_name, file_to_upload):
+    def upload_save(self, id_name, file_to_upload):
         self._init_drive()
         save_file = self._get_or_create_file(
-            f"title = '{save_name}' and '{self.saves_folder_id}' in parents and trashed = false",
-            {'title': save_name, 'parents': [{'id': self.saves_folder_id}]}
+            f"title = '{id_name}' and '{self.saves_folder_id}' in parents and trashed = false",
+            {'title': id_name, 'parents': [{'id': self.saves_folder_id}]}
         )
         save_file.SetContentFile(file_to_upload)
         save_file.Upload()
 
-    def load_save(self, save_name, output_file):
+    def load_save(self, id_name, output_file):
         self._init_drive()
         save_file = self._get_file(
-            f"title = '{save_name}' and '{self.saves_folder_id}' in parents and trashed = false"
+            f"title = '{id_name}' and '{self.saves_folder_id}' in parents and trashed = false"
         )
         if save_file is None:
-            raise KeyError(f"There is no save with a name {save_name} in remote.")
+            raise KeyError(f"There is no save with a name {id_name} in remote.")
         save_file.GetContentFile(output_file)
 
-    def delete_save(self, save_name):
+    def delete_save(self, id_name):
         self._init_drive()
         save_file = self._get_file(
-            f"title = '{save_name}' and '{self.saves_folder_id}' in parents and trashed = false"
+            f"title = '{id_name}' and '{self.saves_folder_id}' in parents and trashed = false"
         )
         if save_file is None:
-            raise KeyError(f"There is no save with a name {save_name} in remote.")
+            raise KeyError(f"There is no save with a name {id_name} in remote.")
         save_file.Delete()
         hints = self._load_hints()
-        hints.pop(save_name.lower())
+        hints.pop(id_name.lower())
         self._save_hints(hints)
 
-    def add_hints(self, save_name, hints: dict[str, str]):
+    def add_hints(self, id_name, hints: dict[str, str]):
         self._init_drive()
         all_hints = self._load_hints()
-        all_hints[save_name.lower()] = hints
+        all_hints[id_name.lower()] = hints
         self._save_hints(all_hints)
 
     def _load_hints(self):
