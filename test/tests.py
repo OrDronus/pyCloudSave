@@ -3,17 +3,15 @@ import shutil
 import re
 from pathlib import Path
 import io
-from typing import Any
+from typing import Any, Iterable
 import unittest
 import unittest.mock
 
 from pyCloudSave import Application
 from remote import FSRemote
 
-SAVE_NAME = "Pascal's Wager"
-LOOKUP_NAME = "pascals wager"
 TEMP_FOLDER = Path(__file__).parent.joinpath("temp")
-SAVE_FOLDER = TEMP_FOLDER.joinpath(SAVE_NAME)
+SAVE_FOLDER = TEMP_FOLDER.joinpath("save_folder")
 REMOTE_FOLDER = TEMP_FOLDER.joinpath("remote")
 LOCAL_REGISTRY = TEMP_FOLDER.joinpath("registry.json")
 
@@ -59,6 +57,11 @@ class IntegrationTest(unittest.TestCase):
         return result
 
     def test_app(self):
+        
+        
+        
+        
+
         # Starting with an empty List
         output = self.invoke_command("list")
         self.assertEqual(output, "There are no currently tracked saves.\n")
@@ -66,6 +69,8 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(output, "There are no saves in a remote.\n")
 
         # Tracking a new save
+        SAVE_NAME = "Pascal's Wager"
+        LOOKUP_NAME = "wager"
         self.invoke_command(f'add {SAVE_NAME} -r "{SAVE_FOLDER}"')        
         output = self.invoke_command("list")
         self.assertIn(SAVE_NAME, output)
@@ -89,26 +94,45 @@ class IntegrationTest(unittest.TestCase):
         output = self.invoke_command(r'remote list')
         self.assertIn(SAVE_NAME, output)
 
+        # Edit again with remote
+        NEW_SAVE_NAME = "F.E.A.R"
+        NEW_LOOKUP_NAME = "fear"
+        NEW_GAME_VERSION = "2.6"
+        self.input_mock.add_inputs(["yes all"])
+        self.invoke_command(f'edit {LOOKUP_NAME} -n "{NEW_SAVE_NAME}" -v "{NEW_GAME_VERSION}"')
+        output = self.invoke_command('list')
+        self.assertNotIn(SAVE_NAME, output)
+        output = self.invoke_command(f'show {NEW_LOOKUP_NAME}')
+        self.assertIn(NEW_SAVE_NAME, output)
+        self.assertIn(NEW_GAME_VERSION, output)
+        output = self.invoke_command('remote list')
+        self.assertNotIn(SAVE_NAME, output)
+        output = self.invoke_command(f'remote show {NEW_LOOKUP_NAME}')
+        self.assertIn(NEW_SAVE_NAME, output)
+        self.assertIn(NEW_GAME_VERSION, output)
+
         # Delete local save files and load back
         clean_folder(SAVE_FOLDER)
-        self.invoke_command(f"load {LOOKUP_NAME}")
+        self.invoke_command(f"load {NEW_LOOKUP_NAME}")
         self.assertCountEqual(list_files(SAVE_FOLDER), ['save2.dat'])
 
-        # # Untrack local
-        # self.invoke_command(f"untrack {SAVE_NAME}")
-        # self.invoke_command("list")
-        # self.invoke_command("remote list")
-        # print()
+        # Untrack local
+        self.invoke_command(f"untrack {NEW_LOOKUP_NAME}")
+        output = self.invoke_command("list")
+        self.assertNotIn(NEW_SAVE_NAME, output)
+        output = self.invoke_command('remote list')
+        self.assertIn(NEW_SAVE_NAME, output)
 
-        # # Delete remote
-        # self.invoke_command(f"remote delete {LOOKUP_NAME}")
-        # self.invoke_command("remote list")
+        # Delete remote
+        self.invoke_command(f"remote delete {NEW_LOOKUP_NAME}")
+        output = self.invoke_command("remote list")
+        self.assertNotIn(NEW_LOOKUP_NAME, output)
 
 class InputMock():
     def __init__(self):
         self.queue = []
 
-    def add_inputs(self, inputs):
+    def add_inputs(self, inputs: Iterable[str]):
         self.queue = list(reversed(inputs)) + self.queue
     
     def __call__(self, prompt='') -> Any:

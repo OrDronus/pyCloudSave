@@ -77,18 +77,18 @@ class FSRemote(Remote):
             save['name'] = new_name
             if id_name != new_id_name:
                 registry[new_id_name] = save
-                del registry[new_id_name]
+                del registry[id_name]
                 filepath = self.main_folder.joinpath(f"{id_name}.zip")
                 new_filepath = self.main_folder.joinpath(f"{new_id_name}.zip")
                 filepath.rename(new_filepath)
         self._save_registry(registry)
     
-    def upload_save(self, id_name, file_to_upload):
+    def upload_save(self, id_name, file_to_upload, _datetime):
         registry = self.get_registry()
         save = registry[id_name]
         remote_path = self.main_folder.joinpath(f"{id_name}.zip")
         shutil.copy(file_to_upload, remote_path)
-        save['last_upload'] = datetime.now()
+        save['last_upload'] = _datetime
         save['size'] = Path(file_to_upload).stat().st_size
         self._save_registry(registry)
 

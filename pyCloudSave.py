@@ -231,8 +231,9 @@ class Application:
             self.remote.register_new_save(local_save['name'], local_save['root'], local_save['filters'], local_save['version'])
         tmp_file = self.temp_folder.joinpath(save_name)
         self.local.pack_save_files(save_name, tmp_file)
-        self.remote.upload_save(save_name, tmp_file)
-        self.local.edit(save_name, last_sync=datetime.now()+timedelta(seconds=1))
+        _datetime = datetime.now()
+        self.remote.upload_save(save_name, tmp_file, _datetime)
+        self.local.edit(save_name, last_sync=_datetime)
         tmp_file.unlink()
         print(f"Save {local_save['name']} uploaded.")
 

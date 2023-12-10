@@ -12,7 +12,7 @@ def normalized_split(name: str) -> str:
     for part in re.split(r"[\s_]+", name):
         if part == "&":
             part = "and"
-        part = re.sub(r"\W+", "", part.lower())
+        part = re.sub(r"\W", "", part.lower())
         if part:
             yield part
 
