@@ -7,7 +7,7 @@ from datetime import datetime
 from collections.abc import Iterator
 from zipfile import ZipFile
 
-from common import DATETIME_FORMAT, json_default, normalize_name
+from common import DATETIME_FORMAT, AppError, json_default, normalize_name, normalized_search
 
 class Local:
     def __init__(self, registry_file=None) -> None:
@@ -41,7 +41,7 @@ class Local:
     def get_registry(self):
         return self._registry
 
-    def track(self, name, root, filters=None, version=None, ):
+    def track(self, name, root, filters=None, version=None):
         id_name = normalize_name(name)
         if id_name in self._registry:
             raise KeyError(f"Save with the name {name} is already tracked.")
@@ -71,6 +71,7 @@ class Local:
             save['name'] = new_name
             new_id_name = normalize_name(new_name)
             if new_id_name != save_name:
+                save['id_name'] = new_id_name
                 self._registry[new_id_name] = save
                 del self._registry[save_name]
         self._save_registry()
@@ -78,6 +79,20 @@ class Local:
     def untrack(self, name):
         del self._registry[name]
         self._save_registry()
+
+    def get_saves_list(self):
+        return list(self._registry.values())
+    
+    def get_save(self, id_name):
+        return self._registry.get(id_name)
+    
+    def find_save(self, search_name):
+        results = normalized_search(self._registry.keys(), search_name)
+        if not results:
+            raise AppError(f"No local saves matching {search_name}.")
+        if len(results) > 1:
+            raise AppError(f"More than one local save matches {search_name}: {', '.join(self._registry[s]['name'] for s in results)}.")
+        return self._registry[results[0]]
 
     def _get_last_mod_time(self, save):
         latest_ts = 0

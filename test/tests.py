@@ -57,11 +57,6 @@ class IntegrationTest(unittest.TestCase):
         return result
 
     def test_app(self):
-        
-        
-        
-        
-
         # Starting with an empty List
         output = self.invoke_command("list")
         self.assertEqual(output, "There are no currently tracked saves.\n")
@@ -69,64 +64,77 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(output, "There are no saves in a remote.\n")
 
         # Tracking a new save
-        SAVE_NAME = "Pascal's Wager"
-        LOOKUP_NAME = "wager"
-        self.invoke_command(f'add {SAVE_NAME} -r "{SAVE_FOLDER}"')        
+        SAVE_NAME_1 = "Pascal's Wager"
+        LOOKUP_NAME_1 = "wager"
+        self.invoke_command(f'add {SAVE_NAME_1} -r "{SAVE_FOLDER}"')        
         output = self.invoke_command("list")
-        self.assertIn(SAVE_NAME, output)
+        self.assertIn(SAVE_NAME_1, output)
         self.assertEqual(count_lines(output), 3)
 
         # Checking saved data
-        output = self.invoke_command(f"show {LOOKUP_NAME}")
-        self.assertIn(SAVE_NAME, output)
+        output = self.invoke_command(f"show {LOOKUP_NAME_1}")
+        self.assertIn(SAVE_NAME_1, output)
         self.assertIn(str(SAVE_FOLDER), output)
 
         # Editing a save
         save_filters = "*dat, !*save1*"
         game_version = "1.23"
-        self.invoke_command(f'edit {LOOKUP_NAME} -f "{save_filters}" -v "{game_version}"')
-        output = self.invoke_command(f'show {LOOKUP_NAME}')
+        self.invoke_command(f'edit {LOOKUP_NAME_1} -f "{save_filters}" -v "{game_version}"')
+        output = self.invoke_command(f'show {LOOKUP_NAME_1}')
         self.assertIn(save_filters, output)
         self.assertIn(game_version, output)
 
         # Upload with sync
-        self.invoke_command(f'sync {LOOKUP_NAME}')
+        self.invoke_command(f'sync {LOOKUP_NAME_1}')
         output = self.invoke_command(r'remote list')
-        self.assertIn(SAVE_NAME, output)
+        self.assertIn(SAVE_NAME_1, output)
 
         # Edit again with remote
-        NEW_SAVE_NAME = "F.E.A.R"
-        NEW_LOOKUP_NAME = "fear"
+        SAVE_NAME_2 = "F.E.A.R"
+        LOOKUP_NAME_2 = "fear"
         NEW_GAME_VERSION = "2.6"
         self.input_mock.add_inputs(["yes all"])
-        self.invoke_command(f'edit {LOOKUP_NAME} -n "{NEW_SAVE_NAME}" -v "{NEW_GAME_VERSION}"')
+        self.invoke_command(f'edit {LOOKUP_NAME_1} -n "{SAVE_NAME_2}" -v "{NEW_GAME_VERSION}"')
         output = self.invoke_command('list')
-        self.assertNotIn(SAVE_NAME, output)
-        output = self.invoke_command(f'show {NEW_LOOKUP_NAME}')
-        self.assertIn(NEW_SAVE_NAME, output)
+        self.assertNotIn(SAVE_NAME_1, output)
+        output = self.invoke_command(f'show {LOOKUP_NAME_2}')
+        self.assertIn(SAVE_NAME_2, output)
+        self.assertIn(str(SAVE_FOLDER), output)
         self.assertIn(NEW_GAME_VERSION, output)
         output = self.invoke_command('remote list')
-        self.assertNotIn(SAVE_NAME, output)
-        output = self.invoke_command(f'remote show {NEW_LOOKUP_NAME}')
-        self.assertIn(NEW_SAVE_NAME, output)
+        self.assertNotIn(SAVE_NAME_1, output)
+        output = self.invoke_command(f'remote show {LOOKUP_NAME_2}')
+        self.assertIn(SAVE_NAME_2, output)
         self.assertIn(NEW_GAME_VERSION, output)
 
         # Delete local save files and load back
         clean_folder(SAVE_FOLDER)
-        self.invoke_command(f"load {NEW_LOOKUP_NAME}")
+        self.invoke_command(f"load {LOOKUP_NAME_2}")
         self.assertCountEqual(list_files(SAVE_FOLDER), ['save2.dat'])
 
-        # Untrack local
-        self.invoke_command(f"untrack {NEW_LOOKUP_NAME}")
-        output = self.invoke_command("list")
-        self.assertNotIn(NEW_SAVE_NAME, output)
+        # Rename remote and try loading again (should get an error)
+        SAVE_NAME_3 = "Doom Eternal"
+        NEW_ROOT_HINT = "Games/Doom/saves"
+        self.invoke_command(f'remote edit {LOOKUP_NAME_2} --name "{SAVE_NAME_3}" -r "{NEW_ROOT_HINT}"')
+        output = self.invoke_command(f'remote show {SAVE_NAME_3}')
+        self.assertIn(NEW_ROOT_HINT, output)
         output = self.invoke_command('remote list')
-        self.assertIn(NEW_SAVE_NAME, output)
+        self.assertNotIn(SAVE_NAME_2, output)
+        self.assertIn(SAVE_NAME_3, output)
+        output = self.invoke_command(f'load {SAVE_NAME_2}')
+        self.assertEqual(f"Save {SAVE_NAME_2} is not present in remote\n", output)
+
+        # Untrack local
+        self.invoke_command(f"untrack {LOOKUP_NAME_2}")
+        output = self.invoke_command("list")
+        self.assertNotIn(SAVE_NAME_2, output)
+        output = self.invoke_command('remote list')
+        self.assertIn(SAVE_NAME_3, output)
 
         # Delete remote
-        self.invoke_command(f"remote delete {NEW_LOOKUP_NAME}")
+        self.invoke_command(f"remote delete {SAVE_NAME_3}")
         output = self.invoke_command("remote list")
-        self.assertNotIn(NEW_LOOKUP_NAME, output)
+        self.assertNotIn(SAVE_NAME_3, output)
 
 class InputMock():
     def __init__(self):

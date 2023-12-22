@@ -7,12 +7,9 @@ from typing import Any
 from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive
 
-from common import normalize_name, json_default, DATETIME_FORMAT
+from common import AppError, normalize_name, json_default, DATETIME_FORMAT, normalized_search
 
 class Remote(ABC):
-    @abstractmethod
-    def get_registry(self) -> dict[str, dict[str, Any]]:
-        pass
 
     @abstractmethod
     def register_new_save(self, name, root_hint=None, filters_hint=None, version=None):
@@ -34,6 +31,14 @@ class Remote(ABC):
     def delete_save(self, id_name):
         pass
 
+    @abstractmethod
+    def get_saves_list(self):
+        pass
+    
+    @abstractmethod
+    def get_save(self, id_name):
+        pass
+
 
 class FSRemote(Remote):
     def __init__(self, folder) -> None:
@@ -46,20 +51,23 @@ class FSRemote(Remote):
             if self.registry_file.exists():
                 with open(self.registry_file) as fio:
                     self._registry = json.load(fio)
-                for save in self._registry.values():
+                for id_name, save in self._registry.items():
                     save['last_upload'] = datetime.strptime(save['last_upload'], DATETIME_FORMAT)
+                    save['id_name'] = id_name
             else:
                 self._registry = {}
         return self._registry
     
     def register_new_save(self, name, root_hint=None, filters_hint=None, version=None):
         registry = self.get_registry()
-        registry[normalize_name(name)] = {
+        id_name = normalize_name(name)
+        registry[id_name] = {
             'name': name,
             'root_hint': root_hint,
             'filters_hint': filters_hint,
             'version': version,
-            'last_upload': None
+            'last_upload': None,
+            'id_name': id_name
         }
         self._save_registry(registry)
 
@@ -76,6 +84,7 @@ class FSRemote(Remote):
             new_id_name = normalize_name(new_name)
             save['name'] = new_name
             if id_name != new_id_name:
+                save['id_name'] = new_id_name
                 registry[new_id_name] = save
                 del registry[id_name]
                 filepath = self.main_folder.joinpath(f"{id_name}.zip")
@@ -109,6 +118,21 @@ class FSRemote(Remote):
         self._registry = changed_registry
         with open(self.registry_file, 'w') as fio:
             return json.dump(changed_registry, fio, default=json_default)
+
+    def get_saves_list(self):
+        return list(self.get_registry().values())
+
+    def get_save(self, id_name):
+        return self.get_registry().get(id_name)
+
+    def find_save(self, search_name):
+        registry = self.get_registry()
+        results = normalized_search(registry.keys(), search_name)
+        if not results:
+            raise AppError(f"No remote saves matching {search_name}.")
+        if len(results) > 1:
+            raise AppError(f"More than one remote save matches {search_name}: {', '.join(registry[s]['name'] for s in results)}.")
+        return registry[results[0]]
 
 FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder'
 

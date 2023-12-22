@@ -25,8 +25,13 @@ def normalized_search(keys, name):
     if exact_name in keys:
         return [exact_name]
     results = []
-    regex = r".*".join(parts)
+    regex = r".*?".join(parts)
     for key in keys:
         if re.search(regex, key):
             results.append(key)
     return results
+
+class AppError(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message
