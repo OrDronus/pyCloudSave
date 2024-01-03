@@ -1,14 +1,17 @@
 import sys
 import shutil
 import re
+import json
 from pathlib import Path
 import io
 from typing import Any, Iterable
+from pydrive.auth import GoogleAuth
+from pydrive.drive import GoogleDrive
 import unittest
 import unittest.mock
 
 from pyCloudSave import Application
-from remote import FilebasedRemote, LocalFS
+from remote import FilebasedRemote, LocalFS, GDriveFS, FOLDER_MIME_TYPE, FileDoesNotExistError
 
 TEMP_FOLDER = Path(__file__).parent.joinpath("temp")
 SAVE_FOLDER = TEMP_FOLDER.joinpath("save_folder")
@@ -136,6 +139,74 @@ class IntegrationTest(unittest.TestCase):
         output = self.invoke_command("remote list")
         self.assertNotIn(SAVE_NAME_3, output)
 
+class GDriveFSTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.local_temp_folder = Path(__file__).parent.joinpath("temp")
+        cls.local_temp_folder.mkdir(exist_ok=True)
+        temp_folder_name = 'pyCloudSave_temp'
+        gauth = GoogleAuth()
+        gauth.LocalWebserverAuth()
+        cls.drive = GoogleDrive(gauth)
+        cls.remote_temp_folder = cls.drive.CreateFile({'title': temp_folder_name, 'mimeType': FOLDER_MIME_TYPE})
+        cls.remote_temp_folder.Upload()
+        cls.gDriveFS = GDriveFS(temp_folder_name)
+    
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.local_temp_folder)
+        cls.remote_temp_folder.Delete()
+
+    def tearDown(self):
+        clean_folder(self.local_temp_folder)
+        for file in self.drive.ListFile({'q': f"'{self.remote_temp_folder['id']}' in parents"}).GetList():
+            file.Delete()
+        
+    def testUploadJsonLoadFile(self):
+        test_data = {'1 1': 2, '3 3': '4', '5 5': None, '6 6': False}
+        filename = 'test_file1.json'
+        local_file = self.local_temp_folder.joinpath(filename)
+        self.gDriveFS.upload_json(filename, test_data)
+        self.gDriveFS.load_file(filename, str(local_file))
+        with open(local_file) as fio:
+            result = json.load(fio)
+        self.assertEqual(test_data, result)
+
+    def testUploadFileLoadJson(self):
+        test_data = {'1 1': 2, '3 3': '4', '5 5': None, '6 6': False}
+        filename = 'test_file2.json'
+        local_file = self.local_temp_folder.joinpath(filename)
+        with open(local_file, 'w') as fio:
+            json.dump(test_data, fio)
+        self.gDriveFS.upload_file(filename, str(local_file))
+        result = self.gDriveFS.load_json(filename)
+        self.assertEqual(test_data, result)
+
+    def testRenameFile(self):
+        filename = 'test_file3.json'
+        local_file = self.local_temp_folder.joinpath(filename)
+        local_target = self.local_temp_folder.joinpath('test_file3_target.json')
+        test_data = 'Foo Bar'
+        local_file.write_text(test_data)
+        self.gDriveFS.upload_file(filename, str(local_file))
+        new_filename = 'test_file3_renamed.json'
+        self.gDriveFS.rename_file(filename, new_filename)
+        with self.assertRaises(FileDoesNotExistError):
+            self.gDriveFS.load_file(filename, local_target)
+        self.gDriveFS.load_file(new_filename, local_target)
+        result = local_target.read_text()
+        self.assertEqual(test_data, result)
+
+    def testDeleteFile(self):
+        filename = 'test_file4.json'
+        local_file = self.local_temp_folder.joinpath(filename)
+        local_file.write_text("Foo Bar")
+        self.gDriveFS.upload_file(filename, local_file)
+        self.gDriveFS.delete_file(filename)
+        with self.assertRaises(FileDoesNotExistError):
+            self.gDriveFS.load_file(filename, local_file)
+        
+
 class InputMock():
     def __init__(self):
         self.queue = []
@@ -183,3 +254,9 @@ def clean_folder(folder):
             file.rmdir()
         else:
             file.unlink()
+
+def clean_gdrive_folder(folder_id: str, drive: GoogleDrive):
+    for file in drive.ListFile({'q': f"'{folder_id}' in parents and trashed = false"}).GetList():
+        if file['mimeType'] == FOLDER_MIME_TYPE:
+            clean_gdrive_folder(file['id'], drive)
+        file.Delete()

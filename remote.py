@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Union
 from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive
+from pydrive.files import GoogleDriveFile
 
 from common import AppError, normalize_name, json_default, DATETIME_FORMAT, normalized_search
 
@@ -201,113 +202,12 @@ class LocalFS(RemoteFS):
     def delete_file(self, filename):
         self.root_folder.joinpath(filename).unlink()
 
-# class FSRemote(Remote):
-#     def __init__(self, folder) -> None:
-#         self.main_folder = Path(folder)
-#         self.registry_file = Path(folder).joinpath('registry.json')
-#         self._registry = None
-
-#     def get_registry(self) -> dict[str, dict[str, Any]]:
-#         if self._registry is not None:
-#             return self._registry
-#         if self.registry_file.exists():
-#             with open(self.registry_file) as fio:
-#                 data = json.load(fio)
-#             if data['version'] != REMOTE_REGISTRY_VERSION:
-#                 raise ValueError(f"Remote registry version: {data['version']} is not supported.")
-#             registry = data['saves']
-#             for id_name, save in registry.items():
-#                 save['last_upload'] = datetime.strptime(save['last_upload'], DATETIME_FORMAT)
-#                 save['id_name'] = id_name
-#         else:
-#             registry = {}
-#         self._registry = registry
-#         return registry
-    
-#     def register_new_save(self, name, root_hint=None, filters_hint=None, version=None):
-#         registry = self.get_registry()
-#         id_name = normalize_name(name)
-#         registry[id_name] = {
-#             'name': name,
-#             'root_hint': root_hint,
-#             'filters_hint': filters_hint,
-#             'version': version,
-#             'last_upload': None,
-#             'id_name': id_name
-#         }
-#         self._save_registry(registry)
-
-#     def edit_save(self, id_name, new_name=None, root_hint=None, filters_hint=None, version=None):
-#         registry = self.get_registry()
-#         save = registry[id_name]
-#         if root_hint:
-#             save['root_hint'] = root_hint
-#         if filters_hint:
-#             save['filters_hint'] = filters_hint
-#         if version:
-#             save['version'] = version
-#         if new_name:
-#             new_id_name = normalize_name(new_name)
-#             save['name'] = new_name
-#             if id_name != new_id_name:
-#                 save['id_name'] = new_id_name
-#                 registry[new_id_name] = save
-#                 del registry[id_name]
-#                 filepath = self.main_folder.joinpath(f"{id_name}.zip")
-#                 new_filepath = self.main_folder.joinpath(f"{new_id_name}.zip")
-#                 filepath.rename(new_filepath)
-#         self._save_registry(registry)
-    
-#     def upload_save(self, id_name, file_to_upload, _datetime):
-#         registry = self.get_registry()
-#         save = registry[id_name]
-#         remote_path = self.main_folder.joinpath(f"{id_name}.zip")
-#         shutil.copy(file_to_upload, remote_path)
-#         save['last_upload'] = _datetime
-#         save['size'] = Path(file_to_upload).stat().st_size
-#         self._save_registry(registry)
-
-#     def load_save(self, id_name, output_file):
-#         remote_path = self.main_folder.joinpath(f"{id_name}.zip")
-#         if not remote_path.is_file():
-#             raise KeyError(f"Save {id_name} is not present in remote.")
-#         shutil.copy(remote_path, output_file)
-
-#     def delete_save(self, id_name):
-#         registry = self.get_registry()
-#         del registry[id_name]
-#         remote_path = self.main_folder.joinpath(f"{id_name}.zip")
-#         remote_path.unlink()
-#         self._save_registry(registry)
-
-#     def _save_registry(self, changed_registry):
-#         self._registry = changed_registry
-#         data = {'version': REMOTE_REGISTRY_VERSION, 'saves': changed_registry}
-#         with open(self.registry_file, 'w') as fio:
-#             return json.dump(data, fio, default=json_default)
-
-#     def get_saves_list(self):
-#         return list(self.get_registry().values())
-
-#     def get_save(self, id_name):
-#         return self.get_registry().get(id_name)
-
-#     def find_save(self, search_name):
-#         registry = self.get_registry()
-#         results = normalized_search(registry.keys(), search_name)
-#         if not results:
-#             raise AppError(f"No remote saves matching {search_name}.")
-#         if len(results) > 1:
-#             raise AppError(f"More than one remote save matches {search_name}: {', '.join(registry[s]['name'] for s in results)}.")
-#         return registry[results[0]]
-
 FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder'
 
-def parse_rfc3339(_str):
-    return datetime.strptime(_str[:_str.find('.')], '%Y-%m-%dT%H:%M:%S')
-  
-class GDriveRemote(Remote):
-    def __init__(self) -> None:
+class GDriveFS(RemoteFS):
+    def __init__(self, root_folder, settings_file='settings.yaml') -> None:
+        self.root_folder = root_folder
+        self.root_folder_id = None
         self.drive = None
         self._registry = None
 
@@ -317,99 +217,61 @@ class GDriveRemote(Remote):
         gauth = GoogleAuth()
         gauth.LocalWebserverAuth()
         self.drive = GoogleDrive(gauth)
-        self.main_folder_id = self._get_or_create_file(
-            f"title = 'pyCloudSave' and mimeType = '{FOLDER_MIME_TYPE}' and 'root' in parents and trashed = false",
-            {'title': 'pyCloudSave', 'mimeType': FOLDER_MIME_TYPE}
-        )['id']
+        self.root_folder_id = self._get_or_create_file({'title': self.root_folder, 'mimeType': FOLDER_MIME_TYPE})['id']
 
-    def get_registry(self) -> dict[str, dict[str, Any]]:
-        if self._registry is not None:
-            return self._registry
+    def load_json(self, filename) -> dict[str, Any]:
         self._init_drive()
-        registry = {}
-        hints = self._load_hints()
-        files = self.drive.ListFile(
-            {'q': f"'{self.saves_folder_id}' in parents and trashed = false"}
-        ).GetList()
-        for file in files:
-            save = {
-                'name': file['title'],
-                'last_upload': parse_rfc3339(file['modifiedDate']),
-                'size': int(file['fileSize'])
-            }
-            lower_name = file['title'].lower()
-            for add_attr in ('root_hint', 'pattern_hint', 'ignore_hint'):
-                if add_attr in hints.get(lower_name, {}):
-                    save[add_attr] = hints[lower_name][add_attr]
-            registry[lower_name] = save
-        self._registry = registry
-        return registry
+        file = self._get_file({'title': filename}, self.root_folder_id)
+        return json.loads(file.GetContentString())
 
-    def upload_save(self, id_name, file_to_upload):
+    def upload_json(self, filename, data):
         self._init_drive()
-        save_file = self._get_or_create_file(
-            f"title = '{id_name}' and '{self.saves_folder_id}' in parents and trashed = false",
-            {'title': id_name, 'parents': [{'id': self.saves_folder_id}]}
-        )
-        save_file.SetContentFile(file_to_upload)
+        file = self._get_or_create_file({'title': filename}, self.root_folder_id)
+        file.SetContentString(json.dumps(data))
+        file.Upload()
+
+    def load_file(self, filename, target):
+        self._init_drive()
+        save_file = self._get_file({'title': filename}, self.root_folder_id)
+        save_file.GetContentFile(target)
+
+    def upload_file(self, filename, source):
+        self._init_drive()
+        save_file = self._get_or_create_file({'title': filename}, self.root_folder_id)
+        save_file.SetContentFile(source)
         save_file.Upload()
 
-    def load_save(self, id_name, output_file):
-        self._init_drive()
-        save_file = self._get_file(
-            f"title = '{id_name}' and '{self.saves_folder_id}' in parents and trashed = false"
-        )
-        if save_file is None:
-            raise KeyError(f"There is no save with a name {id_name} in remote.")
-        save_file.GetContentFile(output_file)
+    def rename_file(self, filename, new_filename):
+        file = self._get_file({'title': filename}, self.root_folder_id)
+        file['title'] = new_filename
+        file.Upload()
 
-    def delete_save(self, id_name):
+    def delete_file(self, filename):
         self._init_drive()
-        save_file = self._get_file(
-            f"title = '{id_name}' and '{self.saves_folder_id}' in parents and trashed = false"
-        )
-        if save_file is None:
-            raise KeyError(f"There is no save with a name {id_name} in remote.")
-        save_file.Delete()
-        hints = self._load_hints()
-        hints.pop(id_name.lower())
-        self._save_hints(hints)
-
-    def add_hints(self, id_name, hints: dict[str, str]):
-        self._init_drive()
-        all_hints = self._load_hints()
-        all_hints[id_name.lower()] = hints
-        self._save_hints(all_hints)
-
-    def _load_hints(self):
-        hints_file = self._get_file(
-            f"title = 'hints.json' and '{self.main_folder_id}' in parents and trashed = false"
-        )
-        if hints_file:
-            return json.loads(hints_file.GetContentString())
+        file = self._get_file({'title': filename}, self.root_folder_id)
+        file.Delete()
+    
+    def _get_file(self, metadata: dict[str, str], parent_id=None) -> GoogleDriveFile:
+        clauses = ["trashed = false"]
+        for name, value in metadata.items():
+            clauses.append(f"{name} = '{value}'")
+        if parent_id:
+            clauses.append(f"'{parent_id}' in parents")
         else:
-            return {}
-        
-    def _save_hints(self, hints):
-        hints_file = self._get_or_create_file(
-            f"title = 'hints.json' and '{self.main_folder_id}' in parents and trashed = false",
-            {'title': 'hints.json', 'parents': [{'id': self.main_folder_id}]}
-        )
-        hints_file.SetContentString(json.dumps(hints))
-        hints_file.Upload()
-
-    def _get_file(self, query):
+            clauses.append("'root' in parents")
+        query = " and ".join(clauses)
         results = self.drive.ListFile({'q': query}).GetList()
-        if results:
-            return results[0]
-        else:
-            return None
+        if not results:
+            raise FileDoesNotExistError()
+        return results[0]
 
-    def _get_or_create_file(self, query, metadata):
-        file = self._get_file(query)
-        if file is not None:
-            return file
-        else:
-            new_file = self.drive.CreateFile(metadata)
-            new_file.Upload()
-            return new_file
+    def _get_or_create_file(self, metadata, parent_id=None):
+        try:
+            return self._get_file(metadata, parent_id)
+        except FileDoesNotExistError:
+            pass
+        if parent_id:
+            metadata['parents'] = [{'id': parent_id}]
+        new_file = self.drive.CreateFile(metadata)
+        new_file.Upload()
+        return new_file
