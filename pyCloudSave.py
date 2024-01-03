@@ -12,7 +12,7 @@ from tabulate import tabulate
 
 from common import AppError, normalize_name, normalized_search
 from local import Local
-from remote import FSRemote, GDriveRemote, Remote
+from remote import Remote, FilebasedRemote, LocalFS
 
 DATETIME_PRINT_FORMAT = "%d.%m.%y %H:%M:%S"
 MIN_DATE = datetime(MINYEAR, 1, 1)
@@ -296,9 +296,9 @@ class YesNoAsker:
 
 def create_remote(options):
     if options['type'] == 'localfs':
-        return FSRemote(options['folder'])
+        return FilebasedRemote(LocalFS(options['folder']))
     elif options['type'] == 'gdrive':
-        return GDriveRemote()
+        pass
     else:
         raise ValueError("Remote is incorrect")
 

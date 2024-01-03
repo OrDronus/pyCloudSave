@@ -8,7 +8,7 @@ import unittest
 import unittest.mock
 
 from pyCloudSave import Application
-from remote import FSRemote
+from remote import FilebasedRemote, LocalFS
 
 TEMP_FOLDER = Path(__file__).parent.joinpath("temp")
 SAVE_FOLDER = TEMP_FOLDER.joinpath("save_folder")
@@ -43,7 +43,7 @@ class IntegrationTest(unittest.TestCase):
         self.input_patcher.stop()
 
     def invoke_command(self, command, inputs=None):
-        remote = FSRemote(REMOTE_FOLDER)
+        remote = FilebasedRemote(LocalFS(REMOTE_FOLDER))
         app = Application(remote, LOCAL_REGISTRY)
         if inputs:
             self.input_mock.add_inputs(inputs)

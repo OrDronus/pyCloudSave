@@ -3,7 +3,7 @@ import shutil
 from datetime import datetime
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive
 
@@ -45,26 +45,52 @@ class Remote(ABC):
     def get_save(self, id_name):
         pass
 
+class RemoteFSError(Exception):
+    pass
 
-class FSRemote(Remote):
-    def __init__(self, folder) -> None:
-        self.main_folder = Path(folder)
-        self.registry_file = Path(folder).joinpath('registry.json')
+class FileDoesNotExistError(RemoteFSError):
+    pass
+
+class RemoteAccessError(RemoteFSError):
+    pass
+
+class RemoteFS(ABC):
+    def load_json(self, filename) -> dict[str, Any]:
+        pass
+
+    def upload_json(self, filename, data):
+        pass
+
+    def load_file(self, filename, target):
+        pass
+
+    def upload_file(self, filename, source):
+        pass
+
+    def rename_file(self, filename, new_filename):
+        pass
+
+    def delete_file(self, filename):
+        pass
+
+REGISTRY_FILENAME = "registry.json"
+class FilebasedRemote(Remote):
+    def __init__(self, fs: RemoteFS):
+        self.fs = fs
         self._registry = None
-
+    
     def get_registry(self) -> dict[str, dict[str, Any]]:
         if self._registry is not None:
             return self._registry
-        if self.registry_file.exists():
-            with open(self.registry_file) as fio:
-                data = json.load(fio)
+        try:
+            data = self.fs.load_json(REGISTRY_FILENAME)
             if data['version'] != REMOTE_REGISTRY_VERSION:
                 raise ValueError(f"Remote registry version: {data['version']} is not supported.")
             registry = data['saves']
             for id_name, save in registry.items():
                 save['last_upload'] = datetime.strptime(save['last_upload'], DATETIME_FORMAT)
                 save['id_name'] = id_name
-        else:
+        except FileDoesNotExistError:
             registry = {}
         self._registry = registry
         return registry
@@ -98,38 +124,36 @@ class FSRemote(Remote):
                 save['id_name'] = new_id_name
                 registry[new_id_name] = save
                 del registry[id_name]
-                filepath = self.main_folder.joinpath(f"{id_name}.zip")
-                new_filepath = self.main_folder.joinpath(f"{new_id_name}.zip")
-                filepath.rename(new_filepath)
+                self.fs.rename_file(self._get_filesave_name(id_name), self._get_filesave_name (new_id_name))
         self._save_registry(registry)
-    
+
+    def load_save(self, id_name, output_file):
+        try:
+            self.fs.load_file(self._get_filesave_name(id_name), output_file)
+        except FileDoesNotExistError:
+            raise KeyError(f"Save {id_name} is not present in remote.") from None
+
     def upload_save(self, id_name, file_to_upload, _datetime):
         registry = self.get_registry()
         save = registry[id_name]
-        remote_path = self.main_folder.joinpath(f"{id_name}.zip")
-        shutil.copy(file_to_upload, remote_path)
+        self.fs.upload_file(self._get_filesave_name(id_name), file_to_upload)
         save['last_upload'] = _datetime
         save['size'] = Path(file_to_upload).stat().st_size
         self._save_registry(registry)
 
-    def load_save(self, id_name, output_file):
-        remote_path = self.main_folder.joinpath(f"{id_name}.zip")
-        if not remote_path.is_file():
-            raise KeyError(f"Save {id_name} is not present in remote.")
-        shutil.copy(remote_path, output_file)
-
     def delete_save(self, id_name):
         registry = self.get_registry()
         del registry[id_name]
-        remote_path = self.main_folder.joinpath(f"{id_name}.zip")
-        remote_path.unlink()
+        self.fs.delete_file(self._get_filesave_name(id_name))
         self._save_registry(registry)
 
     def _save_registry(self, changed_registry):
         self._registry = changed_registry
         data = {'version': REMOTE_REGISTRY_VERSION, 'saves': changed_registry}
-        with open(self.registry_file, 'w') as fio:
-            return json.dump(data, fio, default=json_default)
+        self.fs.upload_json(REGISTRY_FILENAME, data)
+
+    def _get_filesave_name(self, id_name):
+        return f"{id_name}.zip"
 
     def get_saves_list(self):
         return list(self.get_registry().values())
@@ -145,6 +169,137 @@ class FSRemote(Remote):
         if len(results) > 1:
             raise AppError(f"More than one remote save matches {search_name}: {', '.join(registry[s]['name'] for s in results)}.")
         return registry[results[0]]
+
+class LocalFS(RemoteFS):
+    def __init__(self, root_folder):
+        self.root_folder = Path(root_folder)
+        self.root_folder.mkdir(exist_ok=True)
+    
+    def load_json(self, filename) -> dict[str, Any]:
+        file = self.root_folder.joinpath(filename)
+        if not file.is_file():
+            raise FileDoesNotExistError()
+        with open(file, "r") as fio:
+            return json.load(fio)
+
+    def upload_json(self, filename, data):
+        with open(self.root_folder.joinpath(filename), "w") as fio:
+            return json.dump(data, fio, default=json_default)
+
+    def load_file(self, filename, target):
+        file = self.root_folder.joinpath(filename)
+        if not file.is_file():
+            raise FileDoesNotExistError()
+        shutil.copy(file, target)
+
+    def upload_file(self, filename, source):
+        shutil.copy(source, self.root_folder.joinpath(filename))
+
+    def rename_file(self, filename, new_filename):
+        self.root_folder.joinpath(filename).rename(self.root_folder.joinpath(new_filename))
+
+    def delete_file(self, filename):
+        self.root_folder.joinpath(filename).unlink()
+
+# class FSRemote(Remote):
+#     def __init__(self, folder) -> None:
+#         self.main_folder = Path(folder)
+#         self.registry_file = Path(folder).joinpath('registry.json')
+#         self._registry = None
+
+#     def get_registry(self) -> dict[str, dict[str, Any]]:
+#         if self._registry is not None:
+#             return self._registry
+#         if self.registry_file.exists():
+#             with open(self.registry_file) as fio:
+#                 data = json.load(fio)
+#             if data['version'] != REMOTE_REGISTRY_VERSION:
+#                 raise ValueError(f"Remote registry version: {data['version']} is not supported.")
+#             registry = data['saves']
+#             for id_name, save in registry.items():
+#                 save['last_upload'] = datetime.strptime(save['last_upload'], DATETIME_FORMAT)
+#                 save['id_name'] = id_name
+#         else:
+#             registry = {}
+#         self._registry = registry
+#         return registry
+    
+#     def register_new_save(self, name, root_hint=None, filters_hint=None, version=None):
+#         registry = self.get_registry()
+#         id_name = normalize_name(name)
+#         registry[id_name] = {
+#             'name': name,
+#             'root_hint': root_hint,
+#             'filters_hint': filters_hint,
+#             'version': version,
+#             'last_upload': None,
+#             'id_name': id_name
+#         }
+#         self._save_registry(registry)
+
+#     def edit_save(self, id_name, new_name=None, root_hint=None, filters_hint=None, version=None):
+#         registry = self.get_registry()
+#         save = registry[id_name]
+#         if root_hint:
+#             save['root_hint'] = root_hint
+#         if filters_hint:
+#             save['filters_hint'] = filters_hint
+#         if version:
+#             save['version'] = version
+#         if new_name:
+#             new_id_name = normalize_name(new_name)
+#             save['name'] = new_name
+#             if id_name != new_id_name:
+#                 save['id_name'] = new_id_name
+#                 registry[new_id_name] = save
+#                 del registry[id_name]
+#                 filepath = self.main_folder.joinpath(f"{id_name}.zip")
+#                 new_filepath = self.main_folder.joinpath(f"{new_id_name}.zip")
+#                 filepath.rename(new_filepath)
+#         self._save_registry(registry)
+    
+#     def upload_save(self, id_name, file_to_upload, _datetime):
+#         registry = self.get_registry()
+#         save = registry[id_name]
+#         remote_path = self.main_folder.joinpath(f"{id_name}.zip")
+#         shutil.copy(file_to_upload, remote_path)
+#         save['last_upload'] = _datetime
+#         save['size'] = Path(file_to_upload).stat().st_size
+#         self._save_registry(registry)
+
+#     def load_save(self, id_name, output_file):
+#         remote_path = self.main_folder.joinpath(f"{id_name}.zip")
+#         if not remote_path.is_file():
+#             raise KeyError(f"Save {id_name} is not present in remote.")
+#         shutil.copy(remote_path, output_file)
+
+#     def delete_save(self, id_name):
+#         registry = self.get_registry()
+#         del registry[id_name]
+#         remote_path = self.main_folder.joinpath(f"{id_name}.zip")
+#         remote_path.unlink()
+#         self._save_registry(registry)
+
+#     def _save_registry(self, changed_registry):
+#         self._registry = changed_registry
+#         data = {'version': REMOTE_REGISTRY_VERSION, 'saves': changed_registry}
+#         with open(self.registry_file, 'w') as fio:
+#             return json.dump(data, fio, default=json_default)
+
+#     def get_saves_list(self):
+#         return list(self.get_registry().values())
+
+#     def get_save(self, id_name):
+#         return self.get_registry().get(id_name)
+
+#     def find_save(self, search_name):
+#         registry = self.get_registry()
+#         results = normalized_search(registry.keys(), search_name)
+#         if not results:
+#             raise AppError(f"No remote saves matching {search_name}.")
+#         if len(results) > 1:
+#             raise AppError(f"More than one remote save matches {search_name}: {', '.join(registry[s]['name'] for s in results)}.")
+#         return registry[results[0]]
 
 FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder'
 
