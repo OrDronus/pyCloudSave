@@ -9,6 +9,8 @@ from zipfile import ZipFile
 
 from common import DATETIME_FORMAT, AppError, json_default, normalize_name, normalized_search
 
+LOCAL_REGISTRY_VERSION = "1.0"
+
 class Local:
     def __init__(self, registry_file=None) -> None:
         if registry_file is None:
@@ -21,7 +23,10 @@ class Local:
             self._registry = {}
             return
         with open(self.registry_file) as fio:
-            registry = json.load(fio)
+            data = json.load(fio)
+        if data['version'] != LOCAL_REGISTRY_VERSION:
+            raise ValueError(f"Local registry version: {data['version']} is not supported.")
+        registry = data['saves']
         for id_name, save in registry.items():
             if save['last_sync']:
                 save['last_sync'] = datetime.strptime(save['last_sync'], DATETIME_FORMAT)
@@ -30,11 +35,13 @@ class Local:
         self._registry = registry
 
     def _save_registry(self):
-        data = {}
+        data = {'version': LOCAL_REGISTRY_VERSION}
+        registry = {}
         for id_name, save in self._registry.items():
             save_data = {k: v for k, v in save.items() if k in ('name', 'root', 'filters', 'version')}
             save_data['last_sync'] = datetime.strftime(save['last_sync'], DATETIME_FORMAT) if save['last_sync'] else None
-            data[id_name] = save_data
+            registry[id_name] = save_data
+        data['saves'] = registry
         with open(self.registry_file, 'w') as fio:
             json.dump(data, fio, indent=4, default=json_default)
 

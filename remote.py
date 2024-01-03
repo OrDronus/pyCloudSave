@@ -9,6 +9,8 @@ from pydrive.drive import GoogleDrive
 
 from common import AppError, normalize_name, json_default, DATETIME_FORMAT, normalized_search
 
+REMOTE_REGISTRY_VERSION = "1.0"
+
 class Remote(ABC):
 
     @abstractmethod
@@ -34,6 +36,10 @@ class Remote(ABC):
     @abstractmethod
     def get_saves_list(self):
         pass
+
+    @abstractmethod
+    def find_save(self, search_name):
+        pass
     
     @abstractmethod
     def get_save(self, id_name):
@@ -47,16 +53,21 @@ class FSRemote(Remote):
         self._registry = None
 
     def get_registry(self) -> dict[str, dict[str, Any]]:
-        if self._registry is None:
-            if self.registry_file.exists():
-                with open(self.registry_file) as fio:
-                    self._registry = json.load(fio)
-                for id_name, save in self._registry.items():
-                    save['last_upload'] = datetime.strptime(save['last_upload'], DATETIME_FORMAT)
-                    save['id_name'] = id_name
-            else:
-                self._registry = {}
-        return self._registry
+        if self._registry is not None:
+            return self._registry
+        if self.registry_file.exists():
+            with open(self.registry_file) as fio:
+                data = json.load(fio)
+            if data['version'] != REMOTE_REGISTRY_VERSION:
+                raise ValueError(f"Remote registry version: {data['version']} is not supported.")
+            registry = data['saves']
+            for id_name, save in registry.items():
+                save['last_upload'] = datetime.strptime(save['last_upload'], DATETIME_FORMAT)
+                save['id_name'] = id_name
+        else:
+            registry = {}
+        self._registry = registry
+        return registry
     
     def register_new_save(self, name, root_hint=None, filters_hint=None, version=None):
         registry = self.get_registry()
@@ -116,8 +127,9 @@ class FSRemote(Remote):
 
     def _save_registry(self, changed_registry):
         self._registry = changed_registry
+        data = {'version': REMOTE_REGISTRY_VERSION, 'saves': changed_registry}
         with open(self.registry_file, 'w') as fio:
-            return json.dump(changed_registry, fio, default=json_default)
+            return json.dump(data, fio, default=json_default)
 
     def get_saves_list(self):
         return list(self.get_registry().values())
@@ -153,10 +165,6 @@ class GDriveRemote(Remote):
         self.main_folder_id = self._get_or_create_file(
             f"title = 'pyCloudSave' and mimeType = '{FOLDER_MIME_TYPE}' and 'root' in parents and trashed = false",
             {'title': 'pyCloudSave', 'mimeType': FOLDER_MIME_TYPE}
-        )['id']
-        self.saves_folder_id = self._get_or_create_file(
-            f"title = 'saves' and mimeType = '{FOLDER_MIME_TYPE}' and '{self.main_folder_id}' in parents and trashed = false",
-            {'title': 'saves', 'mime_type': FOLDER_MIME_TYPE, 'parents': [{'id': self.main_folder_id}]}
         )['id']
 
     def get_registry(self) -> dict[str, dict[str, Any]]:
