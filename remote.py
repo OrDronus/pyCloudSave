@@ -227,7 +227,7 @@ class GDriveFS(RemoteFS):
     def upload_json(self, filename, data):
         self._init_drive()
         file = self._get_or_create_file({'title': filename}, self.root_folder_id)
-        file.SetContentString(json.dumps(data))
+        file.SetContentString(json.dumps(data, default=json_default))
         file.Upload()
 
     def load_file(self, filename, target):

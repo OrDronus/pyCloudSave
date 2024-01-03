@@ -12,7 +12,7 @@ from tabulate import tabulate
 
 from common import AppError, normalize_name, normalized_search
 from local import Local
-from remote import Remote, FilebasedRemote, LocalFS
+from remote import GDriveFS, Remote, FilebasedRemote, LocalFS
 
 DATETIME_PRINT_FORMAT = "%d.%m.%y %H:%M:%S"
 MIN_DATE = datetime(MINYEAR, 1, 1)
@@ -209,19 +209,22 @@ class Application:
             headers=['Local modification', 'Last synced', 'Remote last upload']
             print(tabulate(data, headers, tablefmt='github'))
         elif local_updated:
+            print(f"Uploading save {local_save['name']}")
             self._upload(local_save['id_name'])
         elif remote_updated:
+            print(f"Loading save {local_save['name']}")
             self._load(local_save['id_name'])
 
     def _upload(self, id_name):
         local_save = self.local.get_save(id_name)
-        print(f"Uploading save {local_save['name']}...")
         remote_save = self.remote.get_save(id_name)
         if not remote_save:
             self.remote.register_new_save(local_save['name'], local_save['root'], local_save['filters'], local_save['version'])
         tmp_file = self.temp_folder.joinpath(id_name)
+        print("Packing files...")
         self.local.pack_save_files(id_name, tmp_file)
         _datetime = datetime.now()
+        print("Uploading...")
         self.remote.upload_save(id_name, tmp_file, _datetime)
         self.local.edit(id_name, last_sync=_datetime)
         tmp_file.unlink()
@@ -229,7 +232,6 @@ class Application:
 
     def _load(self, id_name):
         local_save = self.local.get_save(id_name)
-        print(f"Loading save {local_save['name']}...")
         tmp_file = self.temp_folder.joinpath(id_name)
         self.remote.load_save(id_name, tmp_file)
         self.local.unpack_save_files(id_name, tmp_file)
@@ -298,7 +300,7 @@ def create_remote(options):
     if options['type'] == 'localfs':
         return FilebasedRemote(LocalFS(options['folder']))
     elif options['type'] == 'gdrive':
-        pass
+        return FilebasedRemote(GDriveFS("pyCloudSave"))
     else:
         raise ValueError("Remote is incorrect")
 
