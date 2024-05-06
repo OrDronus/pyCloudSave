@@ -27,6 +27,46 @@ SAVE_STRUCTURE = {
     "save2.dat": "Save data 2"
 }
 
+class AppTest(unittest.TestCase):
+    saves = {
+        'Grim Dawn': {
+            'save_folder': TEMP_FOLDER.joinpath('Grim Dawn')
+        },
+        'Shadows of Loathing': {
+            'save_folder': TEMP_FOLDER.joinpath('Shadows')
+        }
+    }
+    def setUp(self):
+        TEMP_FOLDER.mkdir(exist_ok=True)
+        SAVE_FOLDER.mkdir()
+        create_file_structure(SAVE_FOLDER, SAVE_STRUCTURE)
+        REMOTE_FOLDER.mkdir()
+        self.input_mock = InputMock()
+        self.input_patcher = unittest.mock.patch('pyCloudSave.input', self.input_mock)
+        self.input_patcher.start()
+        self.output_io = io.StringIO()
+        self.output_pathcher = unittest.mock.patch('pyCloudSave.sys.stdout', self.output_io)
+        self.output_pathcher.start()
+
+    def tearDown(self):
+        shutil.rmtree(TEMP_FOLDER)
+        self.output_pathcher.stop()
+        self.input_patcher.stop()
+
+    def invoke_command(self, command, inputs=None):
+        remote = FilebasedRemote(LocalFS(REMOTE_FOLDER))
+        app = Application(remote, LOCAL_REGISTRY)
+        if inputs:
+            self.input_mock.add_inputs(inputs)
+        app.parse_args(split_args(command))
+        return self.pop_output()
+
+    def pop_output(self):
+        result = self.output_io.getvalue()
+        self.output_io.truncate(0)
+        self.output_io.seek(0)
+        return result
+
 class IntegrationTest(unittest.TestCase):
     def setUp(self):
         TEMP_FOLDER.mkdir(exist_ok=True)

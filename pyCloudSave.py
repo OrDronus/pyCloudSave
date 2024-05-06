@@ -76,7 +76,9 @@ class Application:
         upload_parser = subparsers.add_parser('upload', parents=[name_parser])
         upload_parser.set_defaults(command=self.command_upload)
 
-        sync_parser = subparsers.add_parser('sync', parents=[name_parser])
+        sync_parser = subparsers.add_parser('sync')
+        sync_parser.add_argument('name', nargs='*')
+        sync_parser.add_argument('--all', '-a', action='store_true')
         sync_parser.set_defaults(command=self.command_sync)
 
         remote_parser = subparsers.add_parser('remote')
@@ -184,51 +186,57 @@ class Application:
 
     def command_upload(self, args):
         save = self.local.find_save(args.name)
+        if self.is_remote_updated(save['id_name']):
+            message = f"Remote files for {save['name']} were updated since last sync, those changes will be lost! Do you still want to upload?"
+            if not YesNoAsker().ask(message):
+                return
+        elif not self.is_local_updated(save['id_name']):
+            message = f"Local files for {save['name']} have not changed since last sync. Do you still want to upload?"
+            if not YesNoAsker().ask(message):
+                return
         self._upload(save['id_name'])
 
     def command_load(self, args):
         save = self.local.find_save(args.name)
         remote_save = self.remote.get_save(save['id_name'])
-        if remote_save:
-            self._load(save['id_name'])
-        else:
-            print(f"Save {save['name']} is not present in remote")
-        
+        if not remote_save:
+            print(f"{save['name']} is not present in remote!")
+            return
+        if self.is_local_updated(save['id_name']):
+            message = f"Local files for {save['name']} did change since last sync, those changes will be lost! Do you still want to download?"
+            if not YesNoAsker().ask(message):
+                return
+        elif self.is_remote_updated(save['id_name']):
+            message = f"Remote files for {save['name']} were not changed since last sync. Do you still want to download?"
+            if not YesNoAsker().ask(message):
+                return
+        self._load(save['id_name'])
+            
 
     def command_sync(self, args):
-        if args.name in ('--all', '-a', 'all'):
-            for save_name in self.local.get_registry().keys():
-                self._sync(save_name)
+        if args.all:
+            for save_id in self.local.get_registry().keys():
+                self._sync(save_id)
         else:
+            if not args.name:
+                raise AppError("Save name not specified.")
             save = self.local.find_save(args.name)
             self._sync(save['id_name'])
 
     def _sync(self, id_name):
         local_save = self.local.get_save(id_name)
-        remote_save = self.remote.get_save(id_name)
-        remote_last_upload = remote_save['last_upload'] if (remote_save and remote_save['last_upload']) else MIN_DATE
-        local_last_sync = local_save['last_sync'] or MIN_DATE
-        local_last_modification = local_save['last_modification'] or MIN_DATE
-        remote_updated = remote_last_upload > local_last_sync
-        local_updated = local_last_modification > local_last_sync
+        remote_updated = self.is_remote_updated(id_name)
+        local_updated = self.is_local_updated(id_name)
         if remote_updated and local_updated:
-            print(f"Warning, save files for {local_save['name']} are out of sync, some data can be lost, please load or upload explicitly.")
-            data =[[
-                datetime_to_str(local_save['last_modification']),
-                datetime_to_str(local_save.get('last_sync')),
-                datetime_to_str(remote_save['last_upload'])
-            ]]
-            headers=['Local modification', 'Last synced', 'Remote last upload']
-            print(tabulate(data, headers, tablefmt='github'))
+            print(f"Save files for {local_save['name']} are out of sync, some data can be lost! Please load or upload explicitly.")
         elif local_updated:
-            print(f"Uploading save {local_save['name']}")
             self._upload(local_save['id_name'])
         elif remote_updated:
-            print(f"Loading save {local_save['name']}")
             self._load(local_save['id_name'])
 
     def _upload(self, id_name):
         local_save = self.local.get_save(id_name)
+        print(f"Uploading save {local_save['name']}")
         remote_save = self.remote.get_save(id_name)
         if not remote_save:
             self.remote.register_new_save(local_save['name'], local_save['root'], local_save['filters'], local_save['version'])
@@ -244,8 +252,11 @@ class Application:
 
     def _load(self, id_name):
         local_save = self.local.get_save(id_name)
+        print(f"Loading save {local_save['name']}")
         tmp_file = self.temp_folder.joinpath(id_name)
+        print("Downloading...")
         self.remote.load_save(id_name, tmp_file)
+        print("Unpacking...")
         self.local.unpack_save_files(id_name, tmp_file)
         self.local.edit(id_name, last_sync=datetime.now())
         tmp_file.unlink()
@@ -283,6 +294,30 @@ class Application:
         save = self.remote.find_save(args.name)
         self.remote.delete_save(save['id_name'])
         print(f"Save {save['name']} succesfully deleted.")
+
+    def is_remote_updated(self, id_name):
+        local_save = self.local.get_save(id_name)
+        remote_save = self.remote.get_save(id_name)
+        remote_last_upload = remote_save['last_upload'] if (remote_save and remote_save['last_upload']) else MIN_DATE
+        local_last_sync = local_save['last_sync'] or MIN_DATE
+        return remote_last_upload > local_last_sync
+    
+    def is_local_updated(self, id_name):
+        local_save = self.local.get_save(id_name)
+        local_last_sync = local_save['last_sync'] or MIN_DATE
+        local_last_modification = local_save['last_modification'] or MIN_DATE
+        return local_last_modification > local_last_sync
+    
+    def show_dates_comparison(self, id_name):
+        local_save = self.local.get_save(id_name)
+        remote_save = self.remote.get_save(id_name)
+        data = [[
+            datetime_to_str(local_save['last_modification']),
+            datetime_to_str(local_save.get('last_sync')),
+            datetime_to_str(remote_save['last_upload'])
+        ]]
+        headers=['Local modified', 'Local synced', 'Remote uploaded']
+        print(tabulate(data, headers, tablefmt='github'))
 
 class YesNoAsker:
     def __init__(self, default=None, all_option=False):
