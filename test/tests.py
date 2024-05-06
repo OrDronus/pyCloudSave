@@ -115,6 +115,19 @@ class IntegrationTest(unittest.TestCase):
         self.invoke_command(f"load {LOOKUP_NAME_2}")
         self.assertCountEqual(list_files(SAVE_FOLDER), ['save2.dat'])
 
+        # Untrack local
+        self.invoke_command(f"untrack {LOOKUP_NAME_2}")
+        output = self.invoke_command("list")
+        self.assertNotIn(SAVE_NAME_2, output)
+        output = self.invoke_command('remote list')
+        self.assertIn(SAVE_NAME_2, output)
+
+        # Copy remote back into local
+        self.invoke_command(f"track -c {LOOKUP_NAME_2}")
+        output = self.invoke_command(f"show {LOOKUP_NAME_2}")
+        self.assertIn(SAVE_NAME_2, output)
+        self.assertIn(str(SAVE_FOLDER), output)
+
         # Rename remote and try loading again (should get an error)
         SAVE_NAME_3 = "Doom Eternal"
         NEW_ROOT_HINT = "Games/Doom/saves"
@@ -126,13 +139,6 @@ class IntegrationTest(unittest.TestCase):
         self.assertIn(SAVE_NAME_3, output)
         output = self.invoke_command(f'load {SAVE_NAME_2}')
         self.assertEqual(f"Save {SAVE_NAME_2} is not present in remote\n", output)
-
-        # Untrack local
-        self.invoke_command(f"untrack {LOOKUP_NAME_2}")
-        output = self.invoke_command("list")
-        self.assertNotIn(SAVE_NAME_2, output)
-        output = self.invoke_command('remote list')
-        self.assertIn(SAVE_NAME_3, output)
 
         # Delete remote
         self.invoke_command(f"remote delete {SAVE_NAME_3}")

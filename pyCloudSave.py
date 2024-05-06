@@ -57,7 +57,7 @@ class Application:
         track_parser.add_argument('--root', '-r')
         track_parser.add_argument('--filters', '-f')
         track_parser.add_argument('--version', '-v')
-        track_parser.add_argument('--copy', '-c', action='store_true')
+        track_parser.add_argument('--copy', '-c', action='store_const', const=self.command_copy, dest='command')
         track_parser.set_defaults(command=self.command_track)
 
         edit_parser = subparsers.add_parser('edit', parents=[name_parser])
@@ -144,19 +144,18 @@ class Application:
         print(f"Remote size: {size_to_str(remote_save['size'])}")
 
     def command_track(self, args):
-        if args.copy:
-            remote_save = self.remote.find_save(args.name)
-            save_name = remote_save['name']
-            root = remote_save['root_hint'] if args.root is None else args.root
-            filters = remote_save['filters_hint'] if args.filters is None else args.filters
-            version = remote_save['version'] if args.version is None else args.version
-        else:
-            save_name = args.name
-            root = args.root
-            filters = args.filters
-            version = args.version
-        print(f"Adding new save to local registry: {save_name}")
-        self.local.track(save_name, root, filters, version)
+        print(f"Adding new save to local registry: {args.name}")
+        self.local.track(args.name, args.root, args.filters, args.version)
+
+    def command_copy(self, args):
+        remote_save = self.remote.find_save(args.name)
+        print(f"Adding new save to local registry: {remote_save['name']}")
+        self.local.track(
+            remote_save['name'],
+            remote_save['root_hint'] if args.root is None else args.root,
+            remote_save['filters_hint'] if args.filters is None else args.filters,
+            remote_save['version'] if args.version is None else args.version
+        )
     
     def command_edit(self, args):
         local_save = self.local.find_save(args.name)
