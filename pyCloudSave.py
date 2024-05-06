@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import sys
 from datetime import MINYEAR, datetime
 from numbers import Real
@@ -10,7 +11,7 @@ from typing import Any, Union
 
 from tabulate import tabulate
 
-from common import AppError, normalize_name, normalized_search
+from common import AppError, normalize_name, normalized_search, SaveNotFoundError, MultipleSavesFoundError
 from local import Local
 from remote import GDriveFS, Remote, FilebasedRemote, LocalFS
 
@@ -53,9 +54,10 @@ class Application:
         show_parser.set_defaults(command=self.command_show)
 
         track_parser = subparsers.add_parser('track', aliases=['add'], parents=[name_parser])
-        track_parser.add_argument('--root', '-r', required=True)
+        track_parser.add_argument('--root', '-r')
         track_parser.add_argument('--filters', '-f')
         track_parser.add_argument('--version', '-v')
+        track_parser.add_argument('--copy', '-c', action='store_true')
         track_parser.set_defaults(command=self.command_track)
 
         edit_parser = subparsers.add_parser('edit', parents=[name_parser])
@@ -138,12 +140,23 @@ class Application:
         remote_save = self.remote.get_registry().get(save['id_name'])
         if not remote_save:
             return
-        print(f"Remote last upload: {remote_save['last_upload']}")
+        print(f"Remote last upload: {datetime_to_str(remote_save['last_upload'])}")
         print(f"Remote size: {size_to_str(remote_save['size'])}")
 
     def command_track(self, args):
-        print(f"Adding new save to registry: {args.name}")
-        self.local.track(args.name, args.root, args.filters, args.version)
+        if args.copy:
+            remote_save = self.remote.find_save(args.name)
+            save_name = remote_save['name']
+            root = remote_save['root_hint'] if args.root is None else args.root
+            filters = remote_save['filters_hint'] if args.filters is None else args.filters
+            version = remote_save['version'] if args.version is None else args.version
+        else:
+            save_name = args.name
+            root = args.root
+            filters = args.filters
+            version = args.version
+        print(f"Adding new save to local registry: {save_name}")
+        self.local.track(save_name, root, filters, version)
     
     def command_edit(self, args):
         local_save = self.local.find_save(args.name)
@@ -184,7 +197,7 @@ class Application:
         
 
     def command_sync(self, args):
-        if args.name in ('--all', '-a'):
+        if args.name in ('--all', '-a', 'all'):
             for save_name in self.local.get_registry().keys():
                 self._sync(save_name)
         else:
@@ -253,8 +266,15 @@ class Application:
 
     def command_remote_show(self, args):
         save = self.remote.find_save(args.name)
-        for name, val in save.items():
-            print(f"{name.replace('_', ' ').title()}: {val}")
+        print(f"Game name: {save['name']}")
+        if save['version']:
+            print(f"Game version: {save['version']}")
+        print(f"Last upload: {datetime_to_str(save['last_upload'])}")
+        print(f"Size: {size_to_str(save['size'])}")
+        if save['root_hint']:
+            print(f"Root hint: {save['root_hint']}")
+        if save['filters_hint']:
+            print(f"Filters hint: {save['filters_hint']}")
 
     def command_remote_edit(self, args):
         save = self.remote.find_save(args.name)
@@ -304,12 +324,10 @@ def create_remote(options):
     else:
         raise ValueError("Remote is incorrect")
 
-def main():
+if __name__ == "__main__":
+    os.chdir(Path(__file__).parent)
     with open('remote_options.json') as fio:
         remote_options = json.load(fio)
     remote = create_remote(remote_options)
     app = Application(remote)
     app.parse_args(sys.argv[1:])
-
-if __name__ == "__main__":
-    main()

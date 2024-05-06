@@ -8,7 +8,7 @@ from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive
 from pydrive.files import GoogleDriveFile
 
-from common import AppError, normalize_name, json_default, DATETIME_FORMAT, normalized_search
+from common import AppError, SaveNotFoundError, MultipleSavesFoundError, normalize_name, json_default, DATETIME_FORMAT, normalized_search
 
 REMOTE_REGISTRY_VERSION = "1.0"
 
@@ -166,9 +166,9 @@ class FilebasedRemote(Remote):
         registry = self.get_registry()
         results = normalized_search(registry.keys(), search_name)
         if not results:
-            raise AppError(f"No remote saves matching {search_name}.")
+            raise SaveNotFoundError(search_name)
         if len(results) > 1:
-            raise AppError(f"More than one remote save matches {search_name}: {', '.join(registry[s]['name'] for s in results)}.")
+            raise MultipleSavesFoundError(search_name, [registry[s]['name'] for s in results])
         return registry[results[0]]
 
 class LocalFS(RemoteFS):

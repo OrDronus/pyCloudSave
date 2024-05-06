@@ -35,3 +35,17 @@ class AppError(Exception):
     def __init__(self, message):
         super().__init__(message)
         self.message = message
+
+    def __str__(self) -> str:
+        return self.message
+
+class SaveNotFoundError(AppError):
+    def __init__(self, search_name):
+        self.search_name = search_name
+        super().__init__(f"No saves matching {self.search_name}.")
+
+class MultipleSavesFoundError(AppError):
+    def __init__(self, search_name, save_names):
+        self.search_name = search_name
+        self.save_names = save_names
+        super().__init__(f"More than one save matches {self.search_name}: {self.save_names[0]}, {self.save_names[1]}{'.' if len(self.save_names) == 2 else '...'}")

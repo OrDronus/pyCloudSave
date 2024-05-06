@@ -7,7 +7,7 @@ from datetime import datetime
 from collections.abc import Iterator
 from zipfile import ZipFile
 
-from common import DATETIME_FORMAT, AppError, json_default, normalize_name, normalized_search
+from common import DATETIME_FORMAT, AppError, MultipleSavesFoundError, SaveNotFoundError, json_default, normalize_name, normalized_search
 
 LOCAL_REGISTRY_VERSION = "1.0"
 
@@ -96,9 +96,9 @@ class Local:
     def find_save(self, search_name):
         results = normalized_search(self._registry.keys(), search_name)
         if not results:
-            raise AppError(f"No local saves matching {search_name}.")
+            raise SaveNotFoundError(search_name)
         if len(results) > 1:
-            raise AppError(f"More than one local save matches {search_name}: {', '.join(self._registry[s]['name'] for s in results)}.")
+            raise MultipleSavesFoundError(search_name, [self._registry[s]['name'] for s in results])
         return self._registry[results[0]]
 
     def _get_last_mod_time(self, save):
