@@ -4,7 +4,7 @@ from datetime import datetime
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Union
-from pydrive.auth import GoogleAuth
+from pydrive.auth import GoogleAuth, RefreshError
 from pydrive.drive import GoogleDrive
 from pydrive.files import GoogleDriveFile
 
@@ -214,8 +214,13 @@ class GDriveFS(RemoteFS):
     def _init_drive(self):
         if self.drive is not None:
             return
-        gauth = GoogleAuth()
-        gauth.LocalWebserverAuth()
+        try:
+            gauth = GoogleAuth()
+            gauth.LocalWebserverAuth()
+        except RefreshError:
+            Path(__file__).parent.joinpath('credentials.json').unlink()
+            gauth = GoogleAuth()
+            gauth.LocalWebserverAuth()
         self.drive = GoogleDrive(gauth)
         self.root_folder_id = self._get_or_create_file({'title': self.root_folder, 'mimeType': FOLDER_MIME_TYPE})['id']
 
